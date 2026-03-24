@@ -32,80 +32,102 @@ BANK_BIN = "970422"
 BANK_ACCOUNT = "07007003005"
 ACCOUNT_NAME = "VU VAN CUONG"
 
-# Sản phẩm mẫu
+# Username hỗ trợ
+SUPPORT_USERNAME = "@tai_khoan_xin"
+
+# Danh sách sản phẩm
 PRODUCTS = {
     "sp1": {
-        "ten": "ChatGPT Plus 1 Tháng",
-        "gia": 55000,
-        "mo_ta": "Giao hàng số tự động sau khi duyệt.",
+        "ten": "CapCut Pro 35d_BHF",
+        "gia": 35000,
+        "mo_ta": f"Giao hàng số tự động sau khi duyệt.\nHỗ trợ {SUPPORT_USERNAME}",
         "kho_hang": [
-            "Mã giao hàng A-001",
-            "Mã giao hàng A-002",
+            "CAP35-BHF-001",
+            "CAP35-BHF-002",
+            "CAP35-BHF-003",
         ],
     },
-
     "sp2": {
-        "ten": "Gemini Pro AI 2TB 1 Năm",
-        "gia": 155000,
-        "mo_ta": "Giao hàng số tự động sau khi duyệt.",
+        "ten": "CapCut Pro 14 Ngày_BHF",
+        "gia": 25000,
+        "mo_ta": f"Giao hàng số tự động sau khi duyệt.\nHỗ trợ {SUPPORT_USERNAME}",
         "kho_hang": [
-            "Mã giao hàng B-001",
+            "CAP14-BHF-001",
+            "CAP14-BHF-002",
         ],
     },
-
     "sp3": {
-        "ten": "Adobe Creative Cloud",
-        "gia": 195000,
-        "mo_ta": "Giao hàng số tự động sau khi duyệt.",
+        "ten": "CapCut Pro 1 Năm_BHF",
+        "gia": 450000,
+        "mo_ta": f"Giao hàng số tự động sau khi duyệt.\nHỗ trợ {SUPPORT_USERNAME}",
         "kho_hang": [
-            "Mã giao hàng C-001",
+            "CAP1Y-BHF-001",
+            "CAP1Y-BHF-002",
         ],
     },
-
-    # ✅ thêm 5 sản phẩm mới
     "sp4": {
-        "ten": "Canva Pro 1 Năm",
-        "gia": 99000,
-        "mo_ta": "Tài khoản dùng ngay.",
+        "ten": "ChatGPT Plus 1 Tháng",
+        "gia": 79000,
+        "mo_ta": f"Giao hàng số tự động sau khi duyệt.\nHỗ trợ {SUPPORT_USERNAME}",
         "kho_hang": [
-            "CANVA-001",
-            "CANVA-002",
+            "GPTPLUS-001",
+            "GPTPLUS-002",
+            "GPTPLUS-003",
         ],
     },
-
     "sp5": {
-        "ten": "Netflix Premium 1 Tháng",
-        "gia": 65000,
-        "mo_ta": "Profile riêng.",
+        "ten": "Gemini 2TB AI PRO 12 tháng",
+        "gia": 199000,
+        "mo_ta": f"Giao hàng số tự động sau khi duyệt.\nHỗ trợ {SUPPORT_USERNAME}",
         "kho_hang": [
-            "NET-001",
+            "GEMINI2TB-001",
+            "GEMINI2TB-002",
         ],
     },
-
     "sp6": {
-        "ten": "YouTube Premium 6 Tháng",
-        "gia": 120000,
-        "mo_ta": "Tài khoản chính chủ.",
+        "ten": "Adobe Creative Cloud 3 Tháng",
+        "gia": 155000,
+        "mo_ta": f"Giao hàng số tự động sau khi duyệt.\nHỗ trợ {SUPPORT_USERNAME}",
         "kho_hang": [
-            "YT-001",
+            "ADOBE3M-001",
+            "ADOBE3M-002",
         ],
     },
-
     "sp7": {
-        "ten": "Spotify Premium 1 Năm",
-        "gia": 89000,
-        "mo_ta": "Nghe nhạc không quảng cáo.",
+        "ten": "Canva Edu 1 Năm",
+        "gia": 149000,
+        "mo_ta": f"Giao hàng số tự động sau khi duyệt.\nHỗ trợ {SUPPORT_USERNAME}",
         "kho_hang": [
-            "SPOT-001",
+            "CANVAEDU-001",
+            "CANVAEDU-002",
         ],
     },
-
     "sp8": {
-        "ten": "CapCut Pro 1 Năm",
-        "gia": 75000,
-        "mo_ta": "Dùng full tính năng.",
+        "ten": "Canva Pro 1 Năm",
+        "gia": 285000,
+        "mo_ta": f"Giao hàng số tự động sau khi duyệt.\nHỗ trợ {SUPPORT_USERNAME}",
         "kho_hang": [
-            "CAP-001",
+            "CANVAPRO-001",
+            "CANVAPRO-002",
+        ],
+    },
+    "sp9": {
+        "ten": "Youtube Premium 1 Tháng",
+        "gia": 55000,
+        "mo_ta": f"Giao hàng số tự động sau khi duyệt.\nHỗ trợ {SUPPORT_USERNAME}",
+        "kho_hang": [
+            "YT1M-001",
+            "YT1M-002",
+            "YT1M-003",
+        ],
+    },
+    "sp10": {
+        "ten": "Youtube 3 Tháng",
+        "gia": 150000,
+        "mo_ta": f"Giao hàng số tự động sau khi duyệt.\nHỗ trợ {SUPPORT_USERNAME}",
+        "kho_hang": [
+            "YT3M-001",
+            "YT3M-002",
         ],
     },
 }
@@ -201,7 +223,7 @@ def save_user(user_id: int, username: str, full_name: str):
         INSERT OR IGNORE INTO users(user_id, username, full_name, created_at)
         VALUES (?, ?, ?, ?)
         """,
-        (user_id, username, full_name, now_str())
+        (user_id, username or "", full_name, now_str())
     )
     conn.commit()
     conn.close()
@@ -403,6 +425,7 @@ async def cmd_start(message: Message):
         f"Xin chào <b>{user.full_name}</b>!\n\n"
         "Đây là bot bán hàng tự động.\n"
         "Bạn có thể xem sản phẩm, tạo đơn hàng, quét QR thanh toán và gửi bill để chờ duyệt.\n\n"
+        f"Hỗ trợ {SUPPORT_USERNAME}\n\n"
         "Vui lòng chọn mục bên dưới:"
     )
     await message.answer(text, reply_markup=kb_main_menu())
@@ -412,7 +435,10 @@ async def cmd_start(message: Message):
 async def cmd_huy(message: Message, state: FSMContext):
     await state.clear()
     await message.answer("Đã hủy thao tác hiện tại.")
-    await message.answer("Menu chính:", reply_markup=kb_main_menu())
+    await message.answer(
+        f"Menu chính:\nHỗ trợ {SUPPORT_USERNAME}",
+        reply_markup=kb_main_menu()
+    )
 
 
 @dp.message(Command("orders"))
@@ -450,7 +476,10 @@ async def cmd_stock(message: Message):
 
 @dp.callback_query(F.data == "ve_menu")
 async def cb_ve_menu(callback: CallbackQuery):
-    await callback.message.edit_text("Menu chính:", reply_markup=kb_main_menu())
+    await callback.message.edit_text(
+        f"Menu chính:\nHỗ trợ {SUPPORT_USERNAME}",
+        reply_markup=kb_main_menu()
+    )
     await callback.answer()
 
 
@@ -466,7 +495,8 @@ async def cb_huong_dan_mua(callback: CallbackQuery):
         "6. Admin duyệt và bot tự động giao hàng\n\n"
         "Lưu ý:\n"
         "- Chuyển khoản đúng nội dung để dễ đối soát\n"
-        "- Nếu cần hủy thao tác, gõ <code>/huy</code>"
+        "- Nếu cần hủy thao tác, gõ <code>/huy</code>\n"
+        f"- Hỗ trợ {SUPPORT_USERNAME}"
     )
     await callback.message.edit_text(text, reply_markup=kb_main_menu())
     await callback.answer()
@@ -475,7 +505,9 @@ async def cb_huong_dan_mua(callback: CallbackQuery):
 @dp.callback_query(F.data == "xem_san_pham")
 async def cb_xem_san_pham(callback: CallbackQuery):
     await callback.message.edit_text(
-        "<b>Danh sách sản phẩm</b>\nChọn sản phẩm bạn muốn mua:",
+        f"<b>Danh sách sản phẩm</b>\n"
+        f"Chọn sản phẩm bạn muốn mua:\n\n"
+        f"Hỗ trợ {SUPPORT_USERNAME}",
         reply_markup=kb_products()
     )
     await callback.answer()
@@ -531,7 +563,8 @@ async def cb_mua_hang(callback: CallbackQuery, state: FSMContext):
         f"- Số tiền: <b>{format_currency(info['gia'])}</b>\n"
         f"- Nội dung CK: <code>{noi_dung_ck}</code>\n\n"
         "Hãy quét mã QR bên dưới hoặc chuyển khoản thủ công.\n"
-        "Sau khi thanh toán xong, vui lòng gửi <b>ảnh bill</b> ngay trong khung chat này."
+        "Sau khi thanh toán xong, vui lòng gửi <b>ảnh bill</b> ngay trong khung chat này.\n\n"
+        f"Hỗ trợ {SUPPORT_USERNAME}"
     )
 
     try:
@@ -559,7 +592,10 @@ async def xu_ly_gui_bill(message: Message, state: FSMContext):
     if not order_id:
         await message.answer("Không tìm thấy đơn hàng. Vui lòng tạo đơn mới.")
         await state.clear()
-        await message.answer("Menu chính:", reply_markup=kb_main_menu())
+        await message.answer(
+            f"Menu chính:\nHỗ trợ {SUPPORT_USERNAME}",
+            reply_markup=kb_main_menu()
+        )
         return
 
     largest_photo = message.photo[-1]
@@ -578,7 +614,8 @@ async def xu_ly_gui_bill(message: Message, state: FSMContext):
         f"Username: @{user.username if user.username else 'không có'}\n"
         f"Sản phẩm: <b>{order[3]}</b>\n"
         f"Giá: <b>{format_currency(order[4])}</b>\n"
-        f"Trạng thái: <b>Chờ duyệt</b>"
+        f"Trạng thái: <b>Chờ duyệt</b>\n\n"
+        f"Hỗ trợ khách: {SUPPORT_USERNAME}"
     )
 
     await bot.send_photo(
@@ -590,7 +627,8 @@ async def xu_ly_gui_bill(message: Message, state: FSMContext):
 
     await message.answer(
         f"Bot đã nhận bill cho đơn <b>#{order_id}</b>.\n"
-        "Vui lòng chờ admin xác nhận.",
+        f"Vui lòng chờ admin xác nhận.\n\n"
+        f"Hỗ trợ {SUPPORT_USERNAME}",
         reply_markup=kb_main_menu()
     )
     await state.clear()
@@ -599,7 +637,8 @@ async def xu_ly_gui_bill(message: Message, state: FSMContext):
 @dp.message(BuyFlow.cho_gui_bill)
 async def nhac_gui_anh_bill(message: Message):
     await message.answer(
-        "Vui lòng gửi <b>ảnh bill thanh toán</b> để xác nhận đơn hàng.",
+        f"Vui lòng gửi <b>ảnh bill thanh toán</b> để xác nhận đơn hàng.\n\n"
+        f"Hỗ trợ {SUPPORT_USERNAME}",
         reply_markup=kb_main_menu()
     )
 
@@ -628,7 +667,8 @@ async def admin_duyet(callback: CallbackQuery):
             chat_id=order[1],
             text=(
                 f"Đơn <b>#{order_id}</b> tạm thời chưa thể giao vì sản phẩm đang hết hàng.\n"
-                "Vui lòng liên hệ admin để được hỗ trợ.\n\n"
+                f"Vui lòng liên hệ admin để được hỗ trợ.\n"
+                f"Hỗ trợ {SUPPORT_USERNAME}\n\n"
                 "Bạn có thể quay lại menu để tạo đơn mới."
             ),
             reply_markup=kb_main_menu()
@@ -651,7 +691,8 @@ async def admin_duyet(callback: CallbackQuery):
         f"<b>Đơn hàng #{order_id} đã được duyệt</b>\n\n"
         f"Sản phẩm: <b>{order[3]}</b>\n"
         f"Nội dung giao hàng:\n<code>{stock_content}</code>\n\n"
-        "Cảm ơn bạn đã mua hàng!\n\n"
+        f"Cảm ơn bạn đã mua hàng!\n"
+        f"Hỗ trợ {SUPPORT_USERNAME}\n\n"
         "Bạn có thể tiếp tục mua hàng ở menu bên dưới."
     )
 
@@ -690,7 +731,8 @@ async def admin_tu_choi(callback: CallbackQuery):
         chat_id=order[1],
         text=(
             f"Đơn <b>#{order_id}</b> đã bị từ chối.\n"
-            "Nếu bạn đã thanh toán, vui lòng liên hệ admin để được hỗ trợ.\n\n"
+            f"Nếu bạn đã thanh toán, vui lòng liên hệ admin để được hỗ trợ.\n"
+            f"Hỗ trợ {SUPPORT_USERNAME}\n\n"
             "Bạn có thể quay lại menu để tạo đơn mới."
         ),
         reply_markup=kb_main_menu()

@@ -41,24 +41,71 @@ PRODUCTS = {
         "kho_hang": [
             "Mã giao hàng A-001",
             "Mã giao hàng A-002",
-            "Mã giao hàng A-003",
         ],
     },
+
     "sp2": {
         "ten": "Gemini Pro AI 2TB 1 Năm",
         "gia": 155000,
         "mo_ta": "Giao hàng số tự động sau khi duyệt.",
         "kho_hang": [
             "Mã giao hàng B-001",
-            "Mã giao hàng B-002",
         ],
     },
+
     "sp3": {
         "ten": "Adobe Creative Cloud",
         "gia": 195000,
         "mo_ta": "Giao hàng số tự động sau khi duyệt.",
         "kho_hang": [
             "Mã giao hàng C-001",
+        ],
+    },
+
+    # ✅ thêm 5 sản phẩm mới
+    "sp4": {
+        "ten": "Canva Pro 1 Năm",
+        "gia": 99000,
+        "mo_ta": "Tài khoản dùng ngay.",
+        "kho_hang": [
+            "CANVA-001",
+            "CANVA-002",
+        ],
+    },
+
+    "sp5": {
+        "ten": "Netflix Premium 1 Tháng",
+        "gia": 65000,
+        "mo_ta": "Profile riêng.",
+        "kho_hang": [
+            "NET-001",
+        ],
+    },
+
+    "sp6": {
+        "ten": "YouTube Premium 6 Tháng",
+        "gia": 120000,
+        "mo_ta": "Tài khoản chính chủ.",
+        "kho_hang": [
+            "YT-001",
+        ],
+    },
+
+    "sp7": {
+        "ten": "Spotify Premium 1 Năm",
+        "gia": 89000,
+        "mo_ta": "Nghe nhạc không quảng cáo.",
+        "kho_hang": [
+            "SPOT-001",
+        ],
+    },
+
+    "sp8": {
+        "ten": "CapCut Pro 1 Năm",
+        "gia": 75000,
+        "mo_ta": "Dùng full tính năng.",
+        "kho_hang": [
+            "CAP-001",
         ],
     },
 }

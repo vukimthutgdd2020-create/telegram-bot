@@ -512,6 +512,7 @@ async def xu_ly_gui_bill(message: Message, state: FSMContext):
     if not order_id:
         await message.answer("Không tìm thấy đơn hàng. Vui lòng tạo đơn mới.")
         await state.clear()
+        await message.answer("Menu chính:", reply_markup=kb_main_menu())
         return
 
     largest_photo = message.photo[-1]
@@ -542,14 +543,18 @@ async def xu_ly_gui_bill(message: Message, state: FSMContext):
 
     await message.answer(
         f"Bot đã nhận bill cho đơn <b>#{order_id}</b>.\n"
-        "Vui lòng chờ admin xác nhận."
+        "Vui lòng chờ admin xác nhận.",
+        reply_markup=kb_main_menu()
     )
     await state.clear()
 
 
 @dp.message(BuyFlow.cho_gui_bill)
 async def nhac_gui_anh_bill(message: Message):
-    await message.answer("Vui lòng gửi <b>ảnh bill thanh toán</b> để xác nhận đơn hàng.")
+    await message.answer(
+        "Vui lòng gửi <b>ảnh bill thanh toán</b> để xác nhận đơn hàng.",
+        reply_markup=kb_main_menu()
+    )
 
 
 @dp.callback_query(F.data.startswith("admin_duyet_"))
@@ -576,8 +581,10 @@ async def admin_duyet(callback: CallbackQuery):
             chat_id=order[1],
             text=(
                 f"Đơn <b>#{order_id}</b> tạm thời chưa thể giao vì sản phẩm đang hết hàng.\n"
-                "Vui lòng liên hệ admin để được hỗ trợ."
-            )
+                "Vui lòng liên hệ admin để được hỗ trợ.\n\n"
+                "Bạn có thể quay lại menu để tạo đơn mới."
+            ),
+            reply_markup=kb_main_menu()
         )
         try:
             await callback.message.edit_caption(
@@ -597,10 +604,15 @@ async def admin_duyet(callback: CallbackQuery):
         f"<b>Đơn hàng #{order_id} đã được duyệt</b>\n\n"
         f"Sản phẩm: <b>{order[3]}</b>\n"
         f"Nội dung giao hàng:\n<code>{stock_content}</code>\n\n"
-        "Cảm ơn bạn đã mua hàng!"
+        "Cảm ơn bạn đã mua hàng!\n\n"
+        "Bạn có thể tiếp tục mua hàng ở menu bên dưới."
     )
 
-    await bot.send_message(chat_id=order[1], text=text_user)
+    await bot.send_message(
+        chat_id=order[1],
+        text=text_user,
+        reply_markup=kb_main_menu()
+    )
 
     try:
         await callback.message.edit_caption(
@@ -631,8 +643,10 @@ async def admin_tu_choi(callback: CallbackQuery):
         chat_id=order[1],
         text=(
             f"Đơn <b>#{order_id}</b> đã bị từ chối.\n"
-            "Nếu bạn đã thanh toán, vui lòng liên hệ admin để được hỗ trợ."
-        )
+            "Nếu bạn đã thanh toán, vui lòng liên hệ admin để được hỗ trợ.\n\n"
+            "Bạn có thể quay lại menu để tạo đơn mới."
+        ),
+        reply_markup=kb_main_menu()
     )
 
     try:

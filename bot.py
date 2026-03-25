@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import sqlite3
-from datetime import datetime
+import html
 from urllib.parse import quote
 
 from aiogram import Bot, Dispatcher, F
@@ -14,7 +14,6 @@ from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    BotCommand,
     Message,
 )
 
@@ -77,7 +76,6 @@ def tao_qr(order_id, amount):
 def menu():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🛍 Xem sản phẩm", callback_data="sp")],
-        [InlineKeyboardButton(text="📦 Đơn hàng", callback_data="don")],
         [InlineKeyboardButton(text="☎️ Hỗ trợ", callback_data="contact")]
     ])
 
@@ -145,30 +143,58 @@ async def bill(m:Message, state:FSMContext):
     await state.clear()
 
 @dp.callback_query(F.data.startswith("ok_"))
-async def ok(c:CallbackQuery, state:FSMContext):
-    oid=int(c.data.split("_")[1])
-    conn=db(); cur=conn.cursor()
+async def ok(c: CallbackQuery, state: FSMContext):
+    oid = int(c.data.split("_")[1])
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, product FROM orders WHERE id=?", (oid,))
+    uid, product_name = cur.fetchone()
+
     cur.execute("UPDATE orders SET status='approved' WHERE id=?", (oid,))
-    conn.commit(); conn.close()
+    conn.commit()
+    conn.close()
 
     await state.set_state(AdminFlow.nhap_noi_dung)
     await state.update_data(oid=oid)
 
-    await c.message.answer(f"Nhập nội dung giao đơn #{oid}")
+    await c.message.answer(
+        f"✅ Đã duyệt đơn #{oid}\n"
+        f"📦 Sản phẩm: <b>{html.escape(product_name)}</b>\n\n"
+        "Nhập nội dung giao hàng:"
+    )
+
+    await bot.send_message(
+        uid,
+        f"✅ Đơn #{oid} đã được duyệt\n"
+        f"📦 Sản phẩm: <b>{html.escape(product_name)}</b>\n"
+        "Admin đang chuẩn bị giao."
+    )
 
 @dp.message(AdminFlow.nhap_noi_dung)
-async def deliver(m:Message, state:FSMContext):
-    data=await state.get_data()
-    oid=data["oid"]
+async def deliver(m: Message, state: FSMContext):
+    data = await state.get_data()
+    oid = data["oid"]
 
-    conn=db(); cur=conn.cursor()
-    cur.execute("SELECT user_id FROM orders WHERE id=?", (oid,))
-    uid=cur.fetchone()[0]
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, product FROM orders WHERE id=?", (oid,))
+    uid, product_name = cur.fetchone()
 
-    cur.execute("UPDATE orders SET delivery=?,status='done' WHERE id=?", (m.text,oid))
-    conn.commit(); conn.close()
+    text = html.escape(m.text.strip())
 
-    await bot.send_message(uid,f"Đơn #{oid}:\n{m.text}")
+    cur.execute("UPDATE orders SET delivery=?,status='done' WHERE id=?", (text, oid))
+    conn.commit()
+    conn.close()
+
+    await bot.send_message(
+        uid,
+        f"🎉 Đã giao hàng\n\n"
+        f"📦 Sản phẩm: <b>{html.escape(product_name)}</b>\n"
+        f"📌 Nội dung:\n<code>{text}</code>\n\n"
+        "Nhấn giữ để copy."
+    )
+
     await m.answer("Đã giao")
     await state.clear()
 

@@ -211,12 +211,18 @@ async def bill(m: Message, state: FSMContext):
 
     product_name, price = row
 
+    user = m.from_user
+    username = f"@{user.username}" if user.username else "Không có"
+    full_name = html.escape(user.full_name)
+
     caption_admin = (
         f"🧾 <b>Đơn #{oid}</b>\n"
         f"📦 Sản phẩm: <b>{html.escape(product_name)}</b>\n"
-        f"💰 Giá tiền: <b>{price:,}đ</b>\n"
-        f"👤 Khách hàng: <code>{m.from_user.id}</code>\n\n"
-        "Vui lòng chọn thao tác bên dưới:"
+        f"💰 Giá tiền: <b>{price:,}đ</b>\n\n"
+        f"👤 Tên: <b>{full_name}</b>\n"
+        f"🔗 Username: <b>{html.escape(username)}</b>\n"
+        f"🆔 ID: <code>{user.id}</code>\n\n"
+        "Vui lòng chọn thao tác:"
     )
 
     await bot.send_photo(

@@ -247,7 +247,7 @@ async def nhac_gui_bill(m: Message):
 
 
 @dp.callback_query(F.data.startswith("ok_"))
-async def ok(c: CallbackQuery, state: FSMContext):
+async def ok(c: CallbackQuery):
     oid = int(c.data.split("_")[1])
 
     conn = db()
@@ -266,14 +266,12 @@ async def ok(c: CallbackQuery, state: FSMContext):
     conn.commit()
     conn.close()
 
-    await state.set_state(AdminFlow.nhap_noi_dung)
-    await state.update_data(oid=oid)
-
     await c.message.answer(
         f"✅ Đã duyệt đơn #{oid}\n"
         f"📦 Sản phẩm: <b>{html.escape(product_name)}</b>\n"
         f"💰 Giá tiền: <b>{price:,}đ</b>\n\n"
-        "Bây giờ bạn hãy nhập nội dung giao hàng thủ công."
+        f"Để giao đúng đơn này, hãy dùng lệnh:\n"
+        f"<code>/gui {oid}</code>"
     )
 
     await bot.send_message(
@@ -287,10 +285,61 @@ async def ok(c: CallbackQuery, state: FSMContext):
     await c.answer("Đã duyệt đơn.")
 
 
+@dp.message(Command("gui"))
+async def chon_don_gui(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID:
+        await m.answer("Bạn không có quyền dùng lệnh này.")
+        return
+
+    parts = m.text.strip().split()
+    if len(parts) != 2 or not parts[1].isdigit():
+        await m.answer("Cách dùng đúng: <code>/gui 12</code>")
+        return
+
+    oid = int(parts[1])
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id, product, price, status FROM orders WHERE id=?", (oid,))
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        await m.answer("Không tìm thấy đơn hàng.")
+        return
+
+    uid, product_name, price, status = row
+
+    if status not in ("approved", "done"):
+        await m.answer(
+            "Đơn này chưa ở trạng thái được giao.\n"
+            "Hãy bấm DUYỆT trước rồi mới dùng /gui."
+        )
+        return
+
+    await state.set_state(AdminFlow.nhap_noi_dung)
+    await state.update_data(oid=oid)
+
+    await m.answer(
+        f"📌 Đã chọn đơn #{oid}\n"
+        f"📦 Sản phẩm: <b>{html.escape(product_name)}</b>\n"
+        f"💰 Giá tiền: <b>{price:,}đ</b>\n\n"
+        "Bây giờ bạn nhập nội dung giao hàng dạng text."
+    )
+
+
 @dp.message(AdminFlow.nhap_noi_dung)
 async def deliver(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID:
+        return
+
     data = await state.get_data()
-    oid = data["oid"]
+    oid = data.get("oid")
+
+    if not oid:
+        await m.answer("Chưa chọn đơn để giao. Dùng <code>/gui mã_đơn</code> trước.")
+        await state.clear()
+        return
 
     conn = db()
     cur = conn.cursor()

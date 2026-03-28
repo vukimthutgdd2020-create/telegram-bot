@@ -29,16 +29,16 @@ SUPPORT_USERNAME = "@tai_khoan_xin"
 DB_NAME = "shop_bot.db"
 
 PRODUCTS = {
-    "sp1": {"ten": "CapCut Pro 35d_BHF", "gia": 35000},
+    "sp1": {"ten": "CapCut Pro 35d_BHF", "gia": 45000},
     "sp2": {"ten": "CapCut Pro 14 Ngày_BHF", "gia": 25000},
     "sp3": {"ten": "CapCut Pro 1 Năm_BHF", "gia": 450000},
-    "sp4": {"ten": "ChatGPT Plus 1 Tháng", "gia": 79000},
+    "sp4": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000},
     "sp5": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000},
-    "sp6": {"ten": "Adobe Creative Cloud 3 Tháng", "gia": 155000},
+    "sp6": {"ten": "Adobe Creative Cloud 3 Tháng", "gia": 159000},
     "sp7": {"ten": "Canva Edu 1 Năm", "gia": 149000},
-    "sp8": {"ten": "Canva Pro 1 Năm", "gia": 285000},
+    "sp8": {"ten": "Canva Pro 1 Năm", "gia": 289000},
     "sp9": {"ten": "Youtube Premium 1 Tháng", "gia": 55000},
-    "sp10": {"ten": "Youtube 3 Tháng", "gia": 150000},
+    "sp10": {"ten": "Youtube 3 Tháng", "gia": 159000},
 }
 
 logging.basicConfig(level=logging.INFO)

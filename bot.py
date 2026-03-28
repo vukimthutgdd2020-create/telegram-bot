@@ -29,18 +29,18 @@ SUPPORT_USERNAME = "@tai_khoan_xin"
 DB_NAME = "shop_bot.db"
 
 PRODUCTS = {
-    "sp1": {"ten": "CapCut Pro 35d_BHF", "gia": 45000},
-    "sp2": {"ten": "CapCut Pro 14 Ngày_BHF", "gia": 25000},
-    "sp3": {"ten": "CapCut Pro 1 Năm_BHF", "gia": 450000},
-    "sp4": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000},
-    "sp5": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000},
-    "sp6": {"ten": "Adobe Creative Cloud 3 Tháng", "gia": 159000},
-    "sp7": {"ten": "Canva Edu 1 Năm", "gia": 149000},
-    "sp8": {"ten": "Canva Pro 1 Năm", "gia": 289000},
-    "sp9": {"ten": "Youtube Premium 1 Tháng", "gia": 55000},
-    "sp10": {"ten": "Youtube 3 Tháng", "gia": 159000},
-    "sp11": {"ten": "Acc Shoppe Ngâm 5 Tháng Voucher 80k - 100k", "gia": 29000},
-    "sp12": {"ten": "Đặt Đơn Shopee Giảm 100k", "gia": 59000},
+    "sp1": {"ten": "CapCut Pro 35d_BHF", "gia": 45000, "sl": 5},
+    "sp2": {"ten": "CapCut Pro 14 Ngày_BHF", "gia": 25000, "sl": 7},
+    "sp3": {"ten": "CapCut Pro 1 Năm_BHF", "gia": 450000, "sl": 5},
+    "sp4": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000, "sl": 9},
+    "sp5": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000, "sl": 2},
+    "sp6": {"ten": "Adobe Creative Cloud 3 Tháng", "gia": 159000, "sl": 5},
+    "sp7": {"ten": "Canva Edu 1 Năm", "gia": 149000, "sl": 5},
+    "sp8": {"ten": "Canva Pro 1 Năm", "gia": 289000, "sl": 5},
+    "sp9": {"ten": "Youtube Premium 1 Tháng", "gia": 55000, "sl": 5},
+    "sp10": {"ten": "Youtube 3 Tháng", "gia": 159000, "sl": 5},
+    "sp11": {"ten": "Acc Shoppe Ngâm 5 Tháng Voucher 80k - 100k", "gia": 29000, "sl": 5},
+    "sp12": {"ten": "Đặt Đơn Shopee Giảm 100k", "gia": 59000, "sl": 5},
 }
 
 logging.basicConfig(level=logging.INFO)

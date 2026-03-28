@@ -104,9 +104,10 @@ def list_sp():
     rows = []
     i = 1
     for k, v in PRODUCTS.items():
+        so_luong = v.get("sl", 0)
         rows.append([
             InlineKeyboardButton(
-                text=f"[{i}] {v['ten']} | {v['gia'] // 1000}k",
+                text=f"[{i}] {v['ten']} | {v['gia'] // 1000}k | Còn: {so_luong}",
                 callback_data=f"buy_{k}"
             )
         ])

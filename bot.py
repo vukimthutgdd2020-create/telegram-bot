@@ -251,7 +251,7 @@ async def buy(c: CallbackQuery, state: FSMContext):
         f"📦 Sản phẩm: <b>{html.escape(p['ten'])}</b>\n"
         f"💰 Đơn giá: <b>{p['gia']:,}đ</b>\n"
         f"📦 Còn lại: <b>{p.get('sl', 0)}</b>\n\n"
-        "Vui lòng nhập số lượng muốn mua:"
+        "Vui lòng nhập số lượng muốn mua:\n Ví dụ: 1 - 2 - 3 - 4 "
     )
     await c.answer()
 

@@ -152,7 +152,8 @@ async def contact(c: CallbackQuery):
 async def buy(c: CallbackQuery, state: FSMContext):
     pid = c.data.split("_", 1)[1]
     p = PRODUCTS[pid]
-     if p.get("sl", 0) <= 0:
+
+    if p.get("sl", 0) <= 0:
         await c.answer("❌ Sản phẩm này hiện đã hết hàng.", show_alert=True)
         return
 
@@ -267,15 +268,11 @@ async def ok(c: CallbackQuery):
         return
 
     uid, product_name, price = row
-# 👇 TRỪ SỐ LƯỢNG
-for k, v in PRODUCTS.items():
-    if v["ten"] == product_name and v.get("sl", 0) > 0:
-        PRODUCTS[k]["sl"] -= 1
-        break
-for k, v in PRODUCTS.items():
-    if v["ten"] == product_name and v.get("sl", 0) > 0:
-        PRODUCTS[k]["sl"] -= 1
-        break
+
+    for k, v in PRODUCTS.items():
+        if v["ten"] == product_name and v.get("sl", 0) > 0:
+            PRODUCTS[k]["sl"] -= 1
+            break
 
     cur.execute("UPDATE orders SET status='approved' WHERE id=?", (oid,))
     conn.commit()

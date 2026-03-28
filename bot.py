@@ -18,7 +18,7 @@ from aiogram.types import (
     Message,
 )
 
-BOT_TOKEN = "8649986734:AAEPEY3qI8OHOzAz7PUKnxDUmoNHxkXwBNc"
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 ADMIN_ID = 7078570432
 
 BANK_NAME = "MB Bank"
@@ -30,7 +30,7 @@ SUPPORT_USERNAME = "@tai_khoan_xin"
 BASE_DIR = Path(__file__).resolve().parent
 DB_NAME = str(BASE_DIR / "shop_bot.db")
 
-# CHỈ DÙNG ĐỂ KHAI BÁO BAN ĐẦU / ĐỒNG BỘ VÀO DATABASE
+# Chỉ dùng để tạo dữ liệu ban đầu vào database
 DEFAULT_PRODUCTS = {
     "sp1": {"ten": "CapCut Pro 35d_BHF", "gia": 45000, "sl": 5},
     "sp2": {"ten": "CapCut Pro 14 Ngày_BHF", "gia": 25000, "sl": 7},
@@ -75,7 +75,6 @@ def init_db():
     conn = db()
     cur = conn.cursor()
 
-    # Bảng orders
     cur.execute("""
         CREATE TABLE IF NOT EXISTS orders(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -99,7 +98,6 @@ def init_db():
     if "product_code" not in cols:
         cur.execute("ALTER TABLE orders ADD COLUMN product_code TEXT")
 
-    # Bảng products
     cur.execute("""
         CREATE TABLE IF NOT EXISTS products(
             code TEXT PRIMARY KEY,
@@ -110,7 +108,6 @@ def init_db():
         )
     """)
 
-    # Đồng bộ sản phẩm mặc định vào DB
     for code, info in DEFAULT_PRODUCTS.items():
         cur.execute("SELECT code FROM products WHERE code=?", (code,))
         row = cur.fetchone()
@@ -122,7 +119,6 @@ def init_db():
                 VALUES(?,?,?,?,?)
             """, (code, info["ten"], info["gia"], info["sl"], active))
         else:
-            # Chỉ cập nhật tên + giá, không đè stock hiện có
             cur.execute("""
                 UPDATE products
                 SET name=?, price=?
@@ -228,7 +224,8 @@ async def help_command(m: Message):
         "/menu - Xem sản phẩm\n"
         "/help - Hỗ trợ\n"
         "/donhang - Xem đơn hàng đã mua\n"
-        "/update - Cập nhật số lượng sản phẩm (chỉ admin)\n\n"
+        "/update - Cập nhật số lượng sản phẩm (chỉ admin)\n"
+        "/tonkho - Xem tồn kho nhanh (chỉ admin)\n\n"
         f"Liên hệ hỗ trợ: {SUPPORT_USERNAME}"
     )
     await m.answer(text)
@@ -271,6 +268,31 @@ async def donhang_command(m: Message):
         )
 
     await m.answer(text, reply_markup=menu())
+
+
+@dp.message(Command("tonkho"))
+async def tonkho_command(m: Message):
+    if m.from_user.id != ADMIN_ID:
+        await m.answer("Bạn không có quyền dùng lệnh này.")
+        return
+
+    products = get_all_products()
+
+    if not products:
+        await m.answer("Chưa có sản phẩm nào trong kho.")
+        return
+
+    text = "<b>📦 TỒN KHO HIỆN TẠI</b>\n\n"
+    for i, p in enumerate(products, start=1):
+        trang_thai = "Đang bán" if p["active"] == 1 and p["stock"] > 0 else "Hết hàng / Đang khóa"
+        text += (
+            f"{i}. <b>{html.escape(p['name'])}</b>\n"
+            f"💰 Giá: <b>{p['price']:,}đ</b>\n"
+            f"📦 Tồn kho: <b>{p['stock']}</b>\n"
+            f"📌 Trạng thái: <b>{trang_thai}</b>\n\n"
+        )
+
+    await m.answer(text)
 
 
 @dp.callback_query(F.data == "menu")

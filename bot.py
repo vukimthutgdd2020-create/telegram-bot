@@ -267,6 +267,11 @@ async def ok(c: CallbackQuery):
         return
 
     uid, product_name, price = row
+# 👇 TRỪ SỐ LƯỢNG
+for k, v in PRODUCTS.items():
+    if v["ten"] == product_name and v.get("sl", 0) > 0:
+        PRODUCTS[k]["sl"] -= 1
+        break
 for k, v in PRODUCTS.items():
     if v["ten"] == product_name and v.get("sl", 0) > 0:
         PRODUCTS[k]["sl"] -= 1

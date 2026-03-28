@@ -134,9 +134,71 @@ def list_sp():
 async def start(m: Message):
     text = (
         "Chào bạn 👋\n\n"
-        "Chọn mục bên dưới để mua hàng.\n"
-        f"Nếu cần hỗ trợ, nhắn {SUPPORT_USERNAME}"
+        "Các lệnh có thể dùng:\n"
+        "/start - Bắt đầu\n"
+        "/menu - Xem sản phẩm\n"
+        "/help - Hỗ trợ\n"
+        "/donhang - Đơn hàng đã mua\n\n"
+        f"Nếu cần hỗ trợ thêm, nhắn {SUPPORT_USERNAME}"
     )
+    await m.answer(text, reply_markup=menu())
+
+
+@dp.message(Command("menu"))
+async def menu_command(m: Message):
+    await m.answer("🛍 Danh sách sản phẩm:", reply_markup=list_sp())
+
+
+@dp.message(Command("help"))
+async def help_command(m: Message):
+    text = (
+        "<b>Hỗ trợ sử dụng bot</b>\n\n"
+        "/start - Bắt đầu\n"
+        "/menu - Xem sản phẩm\n"
+        "/help - Hỗ trợ\n"
+        "/donhang - Xem đơn hàng đã mua\n"
+        "/update - Cập nhật số lượng sản phẩm (chỉ admin)\n\n"
+        f"Liên hệ hỗ trợ: {SUPPORT_USERNAME}"
+    )
+    await m.answer(text)
+
+
+@dp.message(Command("donhang"))
+async def donhang_command(m: Message):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT id, product, price, quantity, status
+        FROM orders
+        WHERE user_id=?
+        ORDER BY id DESC
+        LIMIT 10
+    """, (m.from_user.id,))
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        await m.answer("Bạn chưa có đơn hàng nào.", reply_markup=menu())
+        return
+
+    trang_thai_map = {
+        "pay": "Chờ thanh toán",
+        "check": "Chờ admin duyệt",
+        "approved": "Đã duyệt",
+        "done": "Đã giao hàng",
+        "reject": "Đã từ chối",
+    }
+
+    text = "<b>🧾 Đơn hàng của bạn:</b>\n\n"
+    for oid, product, price, quantity, status in rows:
+        text += (
+            f"🆔 Đơn <b>#{oid}</b>\n"
+            f"📦 Sản phẩm: <b>{html.escape(product)}</b>\n"
+            f"🔢 Số lượng: <b>{quantity}</b>\n"
+            f"💰 Tổng tiền: <b>{price:,}đ</b>\n"
+            f"📌 Trạng thái: <b>{trang_thai_map.get(status, status)}</b>\n\n"
+        )
+
     await m.answer(text, reply_markup=menu())
 
 

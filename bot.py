@@ -17,7 +17,7 @@ from aiogram.types import (
     Message,
 )
 
-BOT_TOKEN = "8649986734:AAEPEY3qI8OHOzAz7PUKnxDUmoNHxkXwBNc"
+BOT_TOKEN = "YOUR_BOT_TOKEN"
 ADMIN_ID = 7078570432
 
 BANK_NAME = "MB Bank"
@@ -59,6 +59,7 @@ class BuyFlow(StatesGroup):
 
 class AdminFlow(StatesGroup):
     nhap_noi_dung = State()
+    update_so_luong = State()
 
 
 def db():
@@ -161,6 +162,11 @@ async def contact(c: CallbackQuery):
 @dp.callback_query(F.data.startswith("buy_"))
 async def buy(c: CallbackQuery, state: FSMContext):
     pid = c.data.split("_", 1)[1]
+
+    if pid not in PRODUCTS:
+        await c.answer("Không tìm thấy sản phẩm.", show_alert=True)
+        return
+
     p = PRODUCTS[pid]
 
     if p.get("sl", 0) <= 0:
@@ -504,6 +510,71 @@ async def no(c: CallbackQuery):
     )
 
     await c.answer("Đã huỷ đơn.")
+
+
+@dp.message(Command("update"))
+async def update_stock_menu(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID:
+        await m.answer("Bạn không có quyền dùng lệnh này.")
+        return
+
+    text = "<b>Danh sách sản phẩm:</b>\n\n"
+    i = 1
+    for _, v in PRODUCTS.items():
+        text += f"{i}. {html.escape(v['ten'])} | Còn: {v.get('sl', 0)}\n"
+        i += 1
+
+    text += (
+        "\nNhập theo mẫu:\n"
+        "<code>1 5</code>\n"
+        "Nghĩa là: sản phẩm số 1 cập nhật còn 5.\n\n"
+        "Muốn thoát thì nhập: <code>huy</code>"
+    )
+
+    await state.set_state(AdminFlow.update_so_luong)
+    await m.answer(text)
+
+
+@dp.message(AdminFlow.update_so_luong)
+async def update_stock_save(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    text = m.text.strip() if m.text else ""
+
+    if text.lower() == "huy":
+        await state.clear()
+        await m.answer("Đã huỷ cập nhật số lượng.")
+        return
+
+    parts = text.split()
+    if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+        await m.answer(
+            "Sai định dạng.\n"
+            "Nhập theo mẫu: <code>1 5</code>\n"
+            "Nghĩa là sản phẩm số 1 còn 5."
+        )
+        return
+
+    stt = int(parts[0])
+    so_luong_moi = int(parts[1])
+
+    if stt <= 0 or stt > len(PRODUCTS):
+        await m.answer("Số thứ tự sản phẩm không hợp lệ.")
+        return
+
+    keys = list(PRODUCTS.keys())
+    pid = keys[stt - 1]
+
+    PRODUCTS[pid]["sl"] = so_luong_moi
+
+    await m.answer(
+        f"✅ Đã cập nhật:\n"
+        f"📦 Sản phẩm: <b>{html.escape(PRODUCTS[pid]['ten'])}</b>\n"
+        f"📌 Số lượng mới: <b>{so_luong_moi}</b>\n\n"
+        "Tiếp tục nhập theo mẫu <code>stt số_lượng</code> nếu muốn sửa thêm,\n"
+        "hoặc nhập <code>huy</code> để thoát."
+    )
 
 
 async def main():

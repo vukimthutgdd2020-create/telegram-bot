@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sqlite3
 import html
+from pathlib import Path
 from urllib.parse import quote
 
 from aiogram import Bot, Dispatcher, F
@@ -26,7 +27,8 @@ BANK_ACCOUNT = "346641789567"
 ACCOUNT_NAME = "VU VAN CUONG"
 
 SUPPORT_USERNAME = "@tai_khoan_xin"
-DB_NAME = "shop_bot.db"
+BASE_DIR = Path(__file__).resolve().parent
+DB_NAME = str(BASE_DIR / "shop_bot.db")
 
 PRODUCTS = {
     "sp1": {"ten": "CapCut Pro 35d_BHF", "gia": 45000, "sl": 5},
@@ -161,6 +163,13 @@ async def contact(c: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("buy_"))
 async def buy(c: CallbackQuery, state: FSMContext):
+    if c.from_user.id == ADMIN_ID:
+        await c.answer(
+            "Admin không thể mua hàng bằng bot này. Hãy dùng tài khoản Telegram khác để test như khách.",
+            show_alert=True
+        )
+        return
+
     pid = c.data.split("_", 1)[1]
 
     if pid not in PRODUCTS:
@@ -187,6 +196,11 @@ async def buy(c: CallbackQuery, state: FSMContext):
 
 @dp.message(BuyFlow.cho_so_luong)
 async def chon_so_luong(m: Message, state: FSMContext):
+    if m.from_user.id == ADMIN_ID:
+        await m.answer("Admin không thể mua hàng bằng bot này. Hãy dùng tài khoản Telegram khác để test như khách.")
+        await state.clear()
+        return
+
     text = m.text.strip() if m.text else ""
 
     if not text.isdigit():
@@ -252,6 +266,11 @@ async def chon_so_luong(m: Message, state: FSMContext):
 
 @dp.message(BuyFlow.cho_bill, F.photo)
 async def bill(m: Message, state: FSMContext):
+    if m.from_user.id == ADMIN_ID:
+        await m.answer("Admin không thể gửi bill như khách hàng. Hãy dùng tài khoản Telegram khác để test.")
+        await state.clear()
+        return
+
     data = await state.get_data()
     oid = data.get("oid")
 
@@ -395,7 +414,10 @@ async def chon_don_gui(m: Message, state: FSMContext):
     conn.close()
 
     if not row:
-        await m.answer("Không tìm thấy đơn hàng.")
+        await m.answer(
+            f"Không tìm thấy đơn hàng #{oid}.\n"
+            f"Bot đang dùng database: <code>{html.escape(DB_NAME)}</code>"
+        )
         return
 
     uid, product_name, price, quantity, status = row

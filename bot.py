@@ -39,6 +39,8 @@ PRODUCTS = {
     "sp8": {"ten": "Canva Pro 1 Năm", "gia": 289000},
     "sp9": {"ten": "Youtube Premium 1 Tháng", "gia": 55000},
     "sp10": {"ten": "Youtube 3 Tháng", "gia": 159000},
+    "sp11": {"ten": "Acc Shoppe Ngâm 5 Tháng Voucher 80k - 100k", "gia": 29000},
+    "sp12": {"ten": "Đặt Đơn Shopee Giảm 100k", "gia": 59000},
 }
 
 logging.basicConfig(level=logging.INFO)

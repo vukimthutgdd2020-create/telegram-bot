@@ -30,7 +30,8 @@ SUPPORT_USERNAME = "@tai_khoan_xin"
 BASE_DIR = Path(__file__).resolve().parent
 DB_NAME = str(BASE_DIR / "shop_bot.db")
 
-PRODUCTS = {
+# CHỈ DÙNG ĐỂ KHAI BÁO BAN ĐẦU / ĐỒNG BỘ VÀO DATABASE
+DEFAULT_PRODUCTS = {
     "sp1": {"ten": "CapCut Pro 35d_BHF", "gia": 45000, "sl": 5},
     "sp2": {"ten": "CapCut Pro 14 Ngày_BHF", "gia": 25000, "sl": 7},
     "sp3": {"ten": "CapCut Pro 1 Năm_BHF", "gia": 450000, "sl": 5},
@@ -65,17 +66,21 @@ class AdminFlow(StatesGroup):
 
 
 def db():
-    return sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_NAME)
+    conn.row_factory = sqlite3.Row
+    return conn
 
 
 def init_db():
     conn = db()
     cur = conn.cursor()
 
+    # Bảng orders
     cur.execute("""
         CREATE TABLE IF NOT EXISTS orders(
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER,
+            product_code TEXT,
             product TEXT,
             price INTEGER,
             quantity INTEGER DEFAULT 1,
@@ -84,14 +89,47 @@ def init_db():
             delivery TEXT
         )
     """)
-    conn.commit()
 
     cur.execute("PRAGMA table_info(orders)")
-    cols = [row[1] for row in cur.fetchall()]
+    cols = [row["name"] for row in cur.fetchall()]
+
     if "quantity" not in cols:
         cur.execute("ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1")
-        conn.commit()
 
+    if "product_code" not in cols:
+        cur.execute("ALTER TABLE orders ADD COLUMN product_code TEXT")
+
+    # Bảng products
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS products(
+            code TEXT PRIMARY KEY,
+            name TEXT NOT NULL,
+            price INTEGER NOT NULL,
+            stock INTEGER NOT NULL DEFAULT 0,
+            active INTEGER NOT NULL DEFAULT 1
+        )
+    """)
+
+    # Đồng bộ sản phẩm mặc định vào DB
+    for code, info in DEFAULT_PRODUCTS.items():
+        cur.execute("SELECT code FROM products WHERE code=?", (code,))
+        row = cur.fetchone()
+
+        if row is None:
+            active = 1 if info["sl"] > 0 else 0
+            cur.execute("""
+                INSERT INTO products(code, name, price, stock, active)
+                VALUES(?,?,?,?,?)
+            """, (code, info["ten"], info["gia"], info["sl"], active))
+        else:
+            # Chỉ cập nhật tên + giá, không đè stock hiện có
+            cur.execute("""
+                UPDATE products
+                SET name=?, price=?
+                WHERE code=?
+            """, (info["ten"], info["gia"], code))
+
+    conn.commit()
     conn.close()
 
 
@@ -113,18 +151,51 @@ def menu():
     )
 
 
+def get_product_by_code(pid: str):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT code, name, price, stock, active
+        FROM products
+        WHERE code=?
+    """, (pid,))
+    row = cur.fetchone()
+    conn.close()
+    return row
+
+
+def get_all_products():
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT code, name, price, stock, active
+        FROM products
+        ORDER BY code
+    """)
+    rows = cur.fetchall()
+    conn.close()
+    return rows
+
+
 def list_sp():
     rows = []
-    i = 1
-    for k, v in PRODUCTS.items():
-        so_luong = v.get("sl", 0)
+    products = get_all_products()
+
+    for i, p in enumerate(products, start=1):
+        stock = p["stock"]
+        active = p["active"]
+
+        if active == 1 and stock > 0:
+            label = f"[{i}] {p['name']} | {p['price'] // 1000}k | Còn: {stock}"
+        else:
+            label = f"[{i}] {p['name']} | {p['price'] // 1000}k | Hết hàng"
+
         rows.append([
             InlineKeyboardButton(
-                text=f"[{i}] {v['ten']} | {v['gia'] // 1000}k | Còn: {so_luong}",
-                callback_data=f"buy_{k}"
+                text=label,
+                callback_data=f"buy_{p['code']}"
             )
         ])
-        i += 1
 
     rows.append([InlineKeyboardButton(text="🏠 Menu", callback_data="menu")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -190,13 +261,13 @@ async def donhang_command(m: Message):
     }
 
     text = "<b>🧾 Đơn hàng của bạn:</b>\n\n"
-    for oid, product, price, quantity, status in rows:
+    for row in rows:
         text += (
-            f"🆔 Đơn <b>#{oid}</b>\n"
-            f"📦 Sản phẩm: <b>{html.escape(product)}</b>\n"
-            f"🔢 Số lượng: <b>{quantity}</b>\n"
-            f"💰 Tổng tiền: <b>{price:,}đ</b>\n"
-            f"📌 Trạng thái: <b>{trang_thai_map.get(status, status)}</b>\n\n"
+            f"🆔 Đơn <b>#{row['id']}</b>\n"
+            f"📦 Sản phẩm: <b>{html.escape(row['product'])}</b>\n"
+            f"🔢 Số lượng: <b>{row['quantity']}</b>\n"
+            f"💰 Tổng tiền: <b>{row['price']:,}đ</b>\n"
+            f"📌 Trạng thái: <b>{trang_thai_map.get(row['status'], row['status'])}</b>\n\n"
         )
 
     await m.answer(text, reply_markup=menu())
@@ -233,25 +304,24 @@ async def buy(c: CallbackQuery, state: FSMContext):
         return
 
     pid = c.data.split("_", 1)[1]
+    p = get_product_by_code(pid)
 
-    if pid not in PRODUCTS:
+    if not p:
         await c.answer("Không tìm thấy sản phẩm.", show_alert=True)
         return
 
-    p = PRODUCTS[pid]
-
-    if p.get("sl", 0) <= 0:
-        await c.answer("❌ Sản phẩm này hiện đã hết hàng.", show_alert=True)
+    if p["active"] != 1 or p["stock"] <= 0:
+        await c.answer("❌ Sản phẩm này hiện đã hết hàng. Chờ admin cập nhật lại số lượng.", show_alert=True)
         return
 
     await state.set_state(BuyFlow.cho_so_luong)
     await state.update_data(pid=pid)
 
     await c.message.answer(
-        f"📦 Sản phẩm: <b>{html.escape(p['ten'])}</b>\n"
-        f"💰 Đơn giá: <b>{p['gia']:,}đ</b>\n"
-        f"📦 Còn lại: <b>{p.get('sl', 0)}</b>\n\n"
-        "Vui lòng nhập số lượng muốn mua:\n Ví dụ: 1 - 2 - 3 - 4 "
+        f"📦 Sản phẩm: <b>{html.escape(p['name'])}</b>\n"
+        f"💰 Đơn giá: <b>{p['price']:,}đ</b>\n"
+        f"📦 Còn lại: <b>{p['stock']}</b>\n\n"
+        "Vui lòng nhập số lượng muốn mua:\nVí dụ: 1 - 2 - 3 - 4"
     )
     await c.answer()
 
@@ -278,29 +348,38 @@ async def chon_so_luong(m: Message, state: FSMContext):
     data = await state.get_data()
     pid = data.get("pid")
 
-    if not pid or pid not in PRODUCTS:
+    if not pid:
         await m.answer("Không tìm thấy sản phẩm. Vui lòng chọn lại từ menu.")
         await state.clear()
         return
 
-    p = PRODUCTS[pid]
-    ton_kho = p.get("sl", 0)
+    p = get_product_by_code(pid)
 
-    if so_luong > ton_kho:
+    if not p:
+        await m.answer("Không tìm thấy sản phẩm. Vui lòng chọn lại từ menu.")
+        await state.clear()
+        return
+
+    if p["active"] != 1 or p["stock"] <= 0:
+        await m.answer("❌ Sản phẩm này hiện đã hết hàng. Chờ admin cập nhật lại số lượng.")
+        await state.clear()
+        return
+
+    if so_luong > p["stock"]:
         await m.answer(
             f"❌ Số lượng vượt quá tồn kho.\n"
-            f"Hiện chỉ còn: <b>{ton_kho}</b>"
+            f"Hiện chỉ còn: <b>{p['stock']}</b>"
         )
         return
 
-    tong_tien = p["gia"] * so_luong
+    tong_tien = p["price"] * so_luong
 
     conn = db()
     cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO orders(user_id, product, price, quantity, status) VALUES(?,?,?,?,?)",
-        (m.from_user.id, p["ten"], tong_tien, so_luong, "pay")
-    )
+    cur.execute("""
+        INSERT INTO orders(user_id, product_code, product, price, quantity, status)
+        VALUES(?,?,?,?,?,?)
+    """, (m.from_user.id, pid, p["name"], tong_tien, so_luong, "pay"))
     oid = cur.lastrowid
     conn.commit()
     conn.close()
@@ -312,9 +391,9 @@ async def chon_so_luong(m: Message, state: FSMContext):
 
     caption = (
         f"<b>Đơn #{oid}</b>\n"
-        f"📦 Sản phẩm: <b>{html.escape(p['ten'])}</b>\n"
+        f"📦 Sản phẩm: <b>{html.escape(p['name'])}</b>\n"
         f"🔢 Số lượng: <b>{so_luong}</b>\n"
-        f"💰 Đơn giá: <b>{p['gia']:,}đ</b>\n"
+        f"💰 Đơn giá: <b>{p['price']:,}đ</b>\n"
         f"💵 Tổng tiền: <b>{tong_tien:,}đ</b>\n\n"
         f"🏦 Ngân hàng: <b>{BANK_NAME}</b>\n"
         f"👤 Chủ tài khoản: <b>{html.escape(ACCOUNT_NAME)}</b>\n"
@@ -346,22 +425,27 @@ async def bill(m: Message, state: FSMContext):
     conn = db()
     cur = conn.cursor()
 
+    cur.execute("SELECT id, product, price, quantity, status FROM orders WHERE id=?", (oid,))
+    order_row = cur.fetchone()
+
+    if not order_row:
+        conn.close()
+        await m.answer("Không tìm thấy đơn hàng.", reply_markup=menu())
+        await state.clear()
+        return
+
+    if order_row["status"] != "pay":
+        conn.close()
+        await m.answer("Đơn này không còn ở trạng thái chờ bill.", reply_markup=menu())
+        await state.clear()
+        return
+
     cur.execute(
         "UPDATE orders SET proof=?, status='check' WHERE id=?",
         (file_id, oid)
     )
     conn.commit()
-
-    cur.execute("SELECT product, price, quantity FROM orders WHERE id=?", (oid,))
-    row = cur.fetchone()
     conn.close()
-
-    if not row:
-        await m.answer("Không tìm thấy đơn hàng.", reply_markup=menu())
-        await state.clear()
-        return
-
-    product_name, price, quantity = row
 
     user = m.from_user
     username = f"@{user.username}" if user.username else "Không có"
@@ -369,9 +453,9 @@ async def bill(m: Message, state: FSMContext):
 
     caption_admin = (
         f"🧾 <b>Đơn #{oid}</b>\n"
-        f"📦 Sản phẩm: <b>{html.escape(product_name)}</b>\n"
-        f"🔢 Số lượng: <b>{quantity}</b>\n"
-        f"💰 Tổng tiền: <b>{price:,}đ</b>\n\n"
+        f"📦 Sản phẩm: <b>{html.escape(order_row['product'])}</b>\n"
+        f"🔢 Số lượng: <b>{order_row['quantity']}</b>\n"
+        f"💰 Tổng tiền: <b>{order_row['price']:,}đ</b>\n\n"
         f"👤 Tên: <b>{full_name}</b>\n"
         f"🔗 Username: <b>{html.escape(username)}</b>\n"
         f"🆔 ID: <code>{user.id}</code>\n\n"
@@ -405,47 +489,104 @@ async def ok(c: CallbackQuery):
 
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT user_id, product, price, quantity FROM orders WHERE id=?", (oid,))
-    row = cur.fetchone()
 
-    if not row:
+    try:
+        cur.execute("BEGIN IMMEDIATE")
+
+        cur.execute("""
+            SELECT id, user_id, product_code, product, price, quantity, status
+            FROM orders
+            WHERE id=?
+        """, (oid,))
+        order_row = cur.fetchone()
+
+        if not order_row:
+            conn.rollback()
+            conn.close()
+            await c.answer("Không tìm thấy đơn.", show_alert=True)
+            return
+
+        if order_row["status"] != "check":
+            conn.rollback()
+            conn.close()
+            await c.answer("Đơn này đã được xử lý trước đó.", show_alert=True)
+            return
+
+        cur.execute("""
+            SELECT code, name, price, stock, active
+            FROM products
+            WHERE code=?
+        """, (order_row["product_code"],))
+        product_row = cur.fetchone()
+
+        if not product_row:
+            conn.rollback()
+            conn.close()
+            await c.answer("❌ Không tìm thấy sản phẩm trong kho.", show_alert=True)
+            return
+
+        if product_row["active"] != 1 or product_row["stock"] <= 0:
+            conn.rollback()
+            conn.close()
+            await c.answer("❌ Sản phẩm đang hết hàng. Chỉ khi admin update lại số lượng mới bán tiếp được.", show_alert=True)
+            return
+
+        if product_row["stock"] < order_row["quantity"]:
+            conn.rollback()
+            conn.close()
+            await c.answer("❌ Không đủ tồn kho để duyệt đơn này.", show_alert=True)
+            return
+
+        stock_moi = product_row["stock"] - order_row["quantity"]
+        active_moi = 1 if stock_moi > 0 else 0
+
+        cur.execute("""
+            UPDATE products
+            SET stock=?, active=?
+            WHERE code=?
+        """, (stock_moi, active_moi, product_row["code"]))
+
+        cur.execute("""
+            UPDATE orders
+            SET status='approved'
+            WHERE id=?
+        """, (oid,))
+
+        conn.commit()
+
+        uid = order_row["user_id"]
+        product_name = order_row["product"]
+        price = order_row["price"]
+        quantity = order_row["quantity"]
+
+    except Exception:
+        conn.rollback()
         conn.close()
-        await c.answer("Không tìm thấy đơn.", show_alert=True)
+        await c.answer("Có lỗi khi duyệt đơn.", show_alert=True)
         return
 
-    uid, product_name, price, quantity = row
-
-    tim_thay_sp = False
-    for k, v in PRODUCTS.items():
-        if v["ten"] == product_name:
-            tim_thay_sp = True
-            if v.get("sl", 0) < quantity:
-                conn.close()
-                await c.answer("❌ Không đủ tồn kho để duyệt đơn này.", show_alert=True)
-                return
-            PRODUCTS[k]["sl"] -= quantity
-            break
-
-    if not tim_thay_sp:
-        conn.close()
-        await c.answer("❌ Không tìm thấy sản phẩm trong kho.", show_alert=True)
-        return
-
-    cur.execute("UPDATE orders SET status='approved' WHERE id=?", (oid,))
-    conn.commit()
     conn.close()
 
-    await c.message.answer(
+    msg_admin = (
         f"✅ Đã duyệt đơn #{oid}\n"
         f"📦 Sản phẩm: <b>{html.escape(product_name)}</b>\n"
         f"🔢 Số lượng: <b>{quantity}</b>\n"
-        f"💰 Tổng tiền: <b>{price:,}đ</b>\n\n"
-        f"Để giao đúng đơn này, hãy dùng lệnh:\n"
+        f"💰 Tổng tiền: <b>{price:,}đ</b>\n"
+    )
+
+    if stock_moi > 0:
+        msg_admin += f"📦 Tồn kho còn lại: <b>{stock_moi}</b>\n\n"
+    else:
+        msg_admin += "📦 Tồn kho còn lại: <b>0</b>\n⚠️ Sản phẩm này đã hết hàng và bị khóa bán cho tới khi admin /update lại.\n\n"
+
+    msg_admin += (
+        "Để giao đúng đơn này, hãy dùng lệnh:\n"
         f"<code>/gui {oid}</code>"
     )
 
-    await bot.send_message(
-        uid,
+    await c.message.answer(msg_admin)
+
+    msg_user = (
         f"✅ Đơn #{oid} đã được duyệt\n"
         f"📦 Sản phẩm: <b>{html.escape(product_name)}</b>\n"
         f"🔢 Số lượng: <b>{quantity}</b>\n"
@@ -453,6 +594,7 @@ async def ok(c: CallbackQuery):
         "Admin đang chuẩn bị giao hàng cho bạn."
     )
 
+    await bot.send_message(uid, msg_user)
     await c.answer("Đã duyệt đơn.")
 
 
@@ -471,7 +613,11 @@ async def chon_don_gui(m: Message, state: FSMContext):
 
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT user_id, product, price, quantity, status FROM orders WHERE id=?", (oid,))
+    cur.execute("""
+        SELECT user_id, product, price, quantity, status
+        FROM orders
+        WHERE id=?
+    """, (oid,))
     row = cur.fetchone()
     conn.close()
 
@@ -482,9 +628,7 @@ async def chon_don_gui(m: Message, state: FSMContext):
         )
         return
 
-    uid, product_name, price, quantity, status = row
-
-    if status not in ("approved", "done"):
+    if row["status"] not in ("approved", "done"):
         await m.answer(
             "Đơn này chưa ở trạng thái được giao.\n"
             "Hãy bấm DUYỆT trước rồi mới dùng /gui."
@@ -496,9 +640,9 @@ async def chon_don_gui(m: Message, state: FSMContext):
 
     await m.answer(
         f"📌 Đã chọn đơn #{oid}\n"
-        f"📦 Sản phẩm: <b>{html.escape(product_name)}</b>\n"
-        f"🔢 Số lượng: <b>{quantity}</b>\n"
-        f"💰 Tổng tiền: <b>{price:,}đ</b>\n\n"
+        f"📦 Sản phẩm: <b>{html.escape(row['product'])}</b>\n"
+        f"🔢 Số lượng: <b>{row['quantity']}</b>\n"
+        f"💰 Tổng tiền: <b>{row['price']:,}đ</b>\n\n"
         "Bây giờ bạn nhập nội dung giao hàng dạng text."
     )
 
@@ -518,7 +662,11 @@ async def deliver(m: Message, state: FSMContext):
 
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT user_id, product, quantity FROM orders WHERE id=?", (oid,))
+    cur.execute("""
+        SELECT user_id, product, quantity
+        FROM orders
+        WHERE id=?
+    """, (oid,))
     row = cur.fetchone()
 
     if not row:
@@ -527,7 +675,9 @@ async def deliver(m: Message, state: FSMContext):
         await state.clear()
         return
 
-    uid, product_name, quantity = row
+    uid = row["user_id"]
+    product_name = row["product"]
+    quantity = row["quantity"]
 
     raw_text = m.text.strip() if m.text else ""
     if not raw_text:
@@ -570,7 +720,11 @@ async def no(c: CallbackQuery):
 
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT user_id, product, price, quantity FROM orders WHERE id=?", (oid,))
+    cur.execute("""
+        SELECT user_id, product, price, quantity, status
+        FROM orders
+        WHERE id=?
+    """, (oid,))
     row = cur.fetchone()
 
     if not row:
@@ -578,18 +732,21 @@ async def no(c: CallbackQuery):
         await c.answer("Không tìm thấy đơn.", show_alert=True)
         return
 
-    uid, product_name, price, quantity = row
+    if row["status"] not in ("check", "pay"):
+        conn.close()
+        await c.answer("Đơn này đã được xử lý trước đó.", show_alert=True)
+        return
 
     cur.execute("UPDATE orders SET status='reject' WHERE id=?", (oid,))
     conn.commit()
     conn.close()
 
     await bot.send_message(
-        uid,
+        row["user_id"],
         f"❌ Đơn #{oid} đã bị từ chối\n"
-        f"📦 Sản phẩm: <b>{html.escape(product_name)}</b>\n"
-        f"🔢 Số lượng: <b>{quantity}</b>\n"
-        f"💰 Tổng tiền: <b>{price:,}đ</b>\n\n"
+        f"📦 Sản phẩm: <b>{html.escape(row['product'])}</b>\n"
+        f"🔢 Số lượng: <b>{row['quantity']}</b>\n"
+        f"💰 Tổng tiền: <b>{row['price']:,}đ</b>\n\n"
         f"Nếu cần hỗ trợ, vui lòng liên hệ {SUPPORT_USERNAME}"
     )
 
@@ -602,16 +759,22 @@ async def update_stock_menu(m: Message, state: FSMContext):
         await m.answer("Bạn không có quyền dùng lệnh này.")
         return
 
+    products = get_all_products()
+
     text = "<b>Danh sách sản phẩm:</b>\n\n"
-    i = 1
-    for _, v in PRODUCTS.items():
-        text += f"{i}. {html.escape(v['ten'])} | Còn: {v.get('sl', 0)}\n"
-        i += 1
+    for i, p in enumerate(products, start=1):
+        trang_thai = "Đang bán" if p["active"] == 1 and p["stock"] > 0 else "Hết hàng / Đang khóa"
+        text += (
+            f"{i}. {html.escape(p['name'])} | "
+            f"Còn: {p['stock']} | "
+            f"Trạng thái: {trang_thai}\n"
+        )
 
     text += (
         "\nNhập theo mẫu:\n"
         "<code>1 5</code>\n"
-        "Nghĩa là: sản phẩm số 1 cập nhật còn 5.\n\n"
+        "Nghĩa là: sản phẩm số 1 cập nhật còn 5.\n"
+        "Nếu nhập 0 thì sản phẩm sẽ bị khóa bán.\n\n"
         "Muốn thoát thì nhập: <code>huy</code>"
     )
 
@@ -643,19 +806,32 @@ async def update_stock_save(m: Message, state: FSMContext):
     stt = int(parts[0])
     so_luong_moi = int(parts[1])
 
-    if stt <= 0 or stt > len(PRODUCTS):
+    products = get_all_products()
+
+    if stt <= 0 or stt > len(products):
         await m.answer("Số thứ tự sản phẩm không hợp lệ.")
         return
 
-    keys = list(PRODUCTS.keys())
-    pid = keys[stt - 1]
+    p = products[stt - 1]
+    active_moi = 1 if so_luong_moi > 0 else 0
 
-    PRODUCTS[pid]["sl"] = so_luong_moi
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE products
+        SET stock=?, active=?
+        WHERE code=?
+    """, (so_luong_moi, active_moi, p["code"]))
+    conn.commit()
+    conn.close()
+
+    trang_thai = "Đang bán" if active_moi == 1 else "Hết hàng / Đang khóa"
 
     await m.answer(
         f"✅ Đã cập nhật:\n"
-        f"📦 Sản phẩm: <b>{html.escape(PRODUCTS[pid]['ten'])}</b>\n"
-        f"📌 Số lượng mới: <b>{so_luong_moi}</b>\n\n"
+        f"📦 Sản phẩm: <b>{html.escape(p['name'])}</b>\n"
+        f"📌 Số lượng mới: <b>{so_luong_moi}</b>\n"
+        f"📌 Trạng thái mới: <b>{trang_thai}</b>\n\n"
         "Tiếp tục nhập theo mẫu <code>stt số_lượng</code> nếu muốn sửa thêm,\n"
         "hoặc nhập <code>huy</code> để thoát."
     )

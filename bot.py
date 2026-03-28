@@ -17,7 +17,7 @@ from aiogram.types import (
     Message,
 )
 
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+BOT_TOKEN = "8649986734:AAEPEY3qI8OHOzAz7PUKnxDUmoNHxkXwBNc"
 ADMIN_ID = 7078570432
 
 BANK_NAME = "MB Bank"

@@ -50,7 +50,7 @@ DEFAULT_PRODUCTS = {
     "sp11": {"ten": "Youtube Premium 1 Tháng", "gia": 55000, "sl": 5, "nhom": "Youtube"},
     "sp12": {"ten": "Youtube 3 Tháng", "gia": 159000, "sl": 5, "nhom": "Youtube"},
 
-    "sp13": {"ten": "Mã Highlands Coffee Nước Free", "gia": 15000, "sl": 5, "nhom": "Khác"},
+    "sp13": {"ten": "Mã Highlands Coffee Nước Free", "gia": 15000, "sl": 5, "nhom": "Highlands Coffee Free"},
 }
 
 CATEGORY_ORDER = [
@@ -60,7 +60,7 @@ CATEGORY_ORDER = [
     "CapCut",
     "ChatGPT + Gemini",
     "Youtube",
-    "Khác",
+    "Highlands Coffee Free",
 ]
 
 logging.basicConfig(level=logging.INFO)
@@ -122,7 +122,7 @@ def init_db():
             price INTEGER NOT NULL,
             stock INTEGER NOT NULL DEFAULT 0,
             active INTEGER NOT NULL DEFAULT 1,
-            category TEXT NOT NULL DEFAULT 'Khác'
+            category TEXT NOT NULL DEFAULT 'Highlands Coffee Free'
         )
     """)
 
@@ -130,7 +130,7 @@ def init_db():
     product_cols = [row["name"] for row in cur.fetchall()]
 
     if "category" not in product_cols:
-        cur.execute("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Khác'")
+        cur.execute("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Highlands Coffee Free'")
 
     for code, info in DEFAULT_PRODUCTS.items():
         cur.execute("SELECT code FROM products WHERE code=?", (code,))
@@ -141,13 +141,13 @@ def init_db():
             cur.execute("""
                 INSERT INTO products(code, name, price, stock, active, category)
                 VALUES(?,?,?,?,?,?)
-            """, (code, info["ten"], info["gia"], info["sl"], active, info.get("nhom", "Khác")))
+            """, (code, info["ten"], info["gia"], info["sl"], active, info.get("nhom", "Highlands Coffee Free")))
         else:
             cur.execute("""
                 UPDATE products
                 SET name=?, price=?, category=?
                 WHERE code=?
-            """, (info["ten"], info["gia"], info.get("nhom", "Khác"), code))
+            """, (info["ten"], info["gia"], info.get("nhom", "Highlands Coffee Free"), code))
 
     conn.commit()
     conn.close()

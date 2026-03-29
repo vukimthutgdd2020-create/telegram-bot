@@ -39,11 +39,11 @@ DEFAULT_PRODUCTS = {
     "sp6": {"ten": "CapCut Pro 14 Ngày_BHF", "gia": 25000, "sl": 7, "nhom": "CapCut"},
     "sp7": {"ten": "CapCut Pro 35d_BHF", "gia": 45000, "sl": 5, "nhom": "CapCut"},
     "sp8": {"ten": "CapCut Pro 1 Năm_BHF", "gia": 450000, "sl": 5, "nhom": "CapCut"},
-    "sp9": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000, "sl": 9, "nhom": "ChatGPT + Gemini"},
-    "sp10": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000, "sl": 2, "nhom": "ChatGPT + Gemini"},
+    "sp9": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000, "sl": 9, "nhom": "AI Tools"},
+    "sp10": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000, "sl": 2, "nhom": "AI Tools"},
     "sp11": {"ten": "Youtube Premium 1 Tháng", "gia": 55000, "sl": 5, "nhom": "Youtube"},
     "sp12": {"ten": "Youtube 3 Tháng", "gia": 159000, "sl": 5, "nhom": "Youtube"},
-    "sp13": {"ten": "Mã Highlands Coffee Nước Free", "gia": 15000, "sl": 5, "nhom": "Mã Highlands Coffee Free"},
+    "sp13": {"ten": "Mã Highlands Coffee Nước Free", "gia": 15000, "sl": 5, "nhom": "Khác"},
 }
 
 CATEGORY_ORDER = [
@@ -51,9 +51,9 @@ CATEGORY_ORDER = [
     "Shopee",
     "Canva",
     "CapCut",
-    "ChatGPT + Gemini",
+    "AI Tools",
     "Youtube",
-    "Mã Highlands Coffee Free",
+    "Khác",
 ]
 
 logging.basicConfig(level=logging.INFO)
@@ -78,6 +78,7 @@ class AdminFlow(StatesGroup):
     them_so_luong = State()
     them_nhom = State()
     thong_bao = State()
+    xoa_san_pham = State()
 
 
 def db():
@@ -149,7 +150,7 @@ def init_db():
             price INTEGER NOT NULL,
             stock INTEGER NOT NULL DEFAULT 0,
             active INTEGER NOT NULL DEFAULT 1,
-            category TEXT NOT NULL DEFAULT 'Mã Highlands Coffee Free'
+            category TEXT NOT NULL DEFAULT 'Khác'
         )
     """)
 
@@ -157,7 +158,7 @@ def init_db():
     product_cols = [row["name"] for row in cur.fetchall()]
 
     if "category" not in product_cols:
-        cur.execute("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Mã Highlands Coffee Free'")
+        cur.execute("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Khác'")
 
     for code, info in DEFAULT_PRODUCTS.items():
         cur.execute("SELECT code FROM products WHERE code=?", (code,))
@@ -168,13 +169,13 @@ def init_db():
             cur.execute("""
                 INSERT INTO products(code, name, price, stock, active, category)
                 VALUES(?,?,?,?,?,?)
-            """, (code, info["ten"], info["gia"], info["sl"], active, info.get("nhom", "Mã Highlands Coffee Free")))
+            """, (code, info["ten"], info["gia"], info["sl"], active, info.get("nhom", "Khác")))
         else:
             cur.execute("""
                 UPDATE products
                 SET name=?, price=?, category=?
                 WHERE code=?
-            """, (info["ten"], info["gia"], info.get("nhom", "Mã Highlands Coffee Free"), code))
+            """, (info["ten"], info["gia"], info.get("nhom", "Khác"), code))
 
     conn.commit()
     conn.close()
@@ -240,7 +241,10 @@ def get_all_products():
     rows = cur.fetchall()
     conn.close()
 
-    rows = sorted(rows, key=lambda p: (category_sort_key(p["category"]), p["category"].lower(), p["name"].lower()))
+    rows = sorted(
+        rows,
+        key=lambda p: (category_sort_key(p["category"]), p["category"].lower(), p["name"].lower())
+    )
     return rows
 
 
@@ -344,6 +348,7 @@ async def help_command(m: Message):
         "/update - Cập nhật số lượng sản phẩm (chỉ admin)\n"
         "/tonkho - Xem tồn kho nhanh (chỉ admin)\n"
         "/themsp - Thêm sản phẩm mới (chỉ admin)\n"
+        "/xoasp - Xoá sản phẩm ngay trong bot (chỉ admin)\n"
         "/thongbao - Gửi thông báo tới tất cả user đã từng nhắn bot (chỉ admin)\n\n"
         f"Liên hệ hỗ trợ: {SUPPORT_USERNAME}"
     )
@@ -559,6 +564,85 @@ async def themsp_nhap_nhom(m: Message, state: FSMContext):
         f"💰 Giá: <b>{gia:,}đ</b>\n"
         f"📦 Số lượng: <b>{sl}</b>"
     )
+    await state.clear()
+
+
+@dp.message(Command("xoasp"))
+async def xoasp_command(m: Message, state: FSMContext):
+    save_user_info(m.from_user)
+
+    if m.from_user.id != ADMIN_ID:
+        await m.answer("Bạn không có quyền dùng lệnh này.")
+        return
+
+    products = get_all_products()
+
+    if not products:
+        await m.answer("Hiện không có sản phẩm nào để xoá.")
+        return
+
+    text = "<b>🗑 DANH SÁCH SẢN PHẨM CÓ THỂ XOÁ</b>\n\n"
+    for i, p in enumerate(products, start=1):
+        text += (
+            f"{i}. <b>{html.escape(p['name'])}</b>\n"
+            f"📂 Nhóm: <b>{html.escape(p['category'])}</b>\n"
+            f"💰 Giá: <b>{p['price']:,}đ</b>\n"
+            f"📦 Tồn kho: <b>{p['stock']}</b>\n\n"
+        )
+
+    text += (
+        "Nhập <b>STT sản phẩm</b> muốn xoá.\n"
+        "Ví dụ: <code>3</code>\n\n"
+        "Muốn thoát thì nhập: <code>huy</code>"
+    )
+
+    await state.set_state(AdminFlow.xoa_san_pham)
+    await m.answer(text)
+
+
+@dp.message(AdminFlow.xoa_san_pham)
+async def xoasp_save(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    text = m.text.strip() if m.text else ""
+
+    if text.lower() == "huy":
+        await state.clear()
+        await m.answer("Đã huỷ xoá sản phẩm.")
+        return
+
+    if not text.isdigit():
+        await m.answer(
+            "Vui lòng nhập đúng STT sản phẩm muốn xoá.\n"
+            "Ví dụ: <code>3</code>\n"
+            "Hoặc nhập <code>huy</code> để thoát."
+        )
+        return
+
+    stt = int(text)
+    products = get_all_products()
+
+    if stt <= 0 or stt > len(products):
+        await m.answer("STT sản phẩm không hợp lệ.")
+        return
+
+    p = products[stt - 1]
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM products WHERE code=?", (p["code"],))
+    conn.commit()
+    conn.close()
+
+    await m.answer(
+        f"✅ Đã xoá sản phẩm thành công.\n\n"
+        f"🆔 Mã: <b>{html.escape(p['code'])}</b>\n"
+        f"📦 Tên: <b>{html.escape(p['name'])}</b>\n"
+        f"📂 Nhóm: <b>{html.escape(p['category'])}</b>\n"
+        f"💰 Giá: <b>{p['price']:,}đ</b>"
+    )
+
     await state.clear()
 
 

@@ -19,9 +19,9 @@ from aiogram.types import (
 # =========================
 # CẤU HÌNH
 # =========================
-BOT_TOKEN = "YOUR_BOT_TOKEN"
+BOT_TOKEN = "8649986734:AAEPEY3qI8OHOzAz7PUKnxDUmoNHxkXwBNc"
 ADMIN_ID = 7078570432
-CHAYCODE_API_KEY = "YOUR_CHAYCODE_API_KEY"
+CHAYCODE_API_KEY = "8fc8e078133cde11"
 
 SUPPORT_USERNAME = "@tai_khoan_xin"
 BASE_DIR = Path(__file__).resolve().parent

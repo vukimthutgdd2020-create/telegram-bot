@@ -149,7 +149,7 @@ def init_db():
             price INTEGER NOT NULL,
             stock INTEGER NOT NULL DEFAULT 0,
             active INTEGER NOT NULL DEFAULT 1,
-            category TEXT NOT NULL DEFAULT 'Khác'
+            category TEXT NOT NULL DEFAULT 'Mã Highlands Coffee Free'
         )
     """)
 
@@ -157,7 +157,7 @@ def init_db():
     product_cols = [row["name"] for row in cur.fetchall()]
 
     if "category" not in product_cols:
-        cur.execute("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Khác'")
+        cur.execute("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Mã Highlands Coffee Free'")
 
     for code, info in DEFAULT_PRODUCTS.items():
         cur.execute("SELECT code FROM products WHERE code=?", (code,))
@@ -168,13 +168,13 @@ def init_db():
             cur.execute("""
                 INSERT INTO products(code, name, price, stock, active, category)
                 VALUES(?,?,?,?,?,?)
-            """, (code, info["ten"], info["gia"], info["sl"], active, info.get("nhom", "Khác")))
+            """, (code, info["ten"], info["gia"], info["sl"], active, info.get("nhom", "Mã Highlands Coffee Free")))
         else:
             cur.execute("""
                 UPDATE products
                 SET name=?, price=?, category=?
                 WHERE code=?
-            """, (info["ten"], info["gia"], info.get("nhom", "Khác"), code))
+            """, (info["ten"], info["gia"], info.get("nhom", "Mã Highlands Coffee Free"), code))
 
     conn.commit()
     conn.close()

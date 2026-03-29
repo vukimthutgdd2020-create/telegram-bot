@@ -161,7 +161,8 @@ def init_db():
             quantity INTEGER DEFAULT 1,
             status TEXT,
             proof TEXT,
-            delivery TEXT
+            delivery TEXT,
+            paid_from_wallet INTEGER NOT NULL DEFAULT 0
         )
     """)
 
@@ -213,6 +214,8 @@ def init_db():
         cur.execute("ALTER TABLE orders ADD COLUMN quantity INTEGER DEFAULT 1")
     if "product_code" not in cols:
         cur.execute("ALTER TABLE orders ADD COLUMN product_code TEXT")
+    if "paid_from_wallet" not in cols:
+        cur.execute("ALTER TABLE orders ADD COLUMN paid_from_wallet INTEGER NOT NULL DEFAULT 0")
 
     cur.execute("""
         CREATE TABLE IF NOT EXISTS products(
@@ -1274,8 +1277,8 @@ async def chon_so_luong(m: Message, state: FSMContext):
             """, (stock_moi, active_moi, pid))
 
             cur.execute("""
-                INSERT INTO orders(user_id, product_code, product, price, quantity, status)
-                VALUES(?,?,?,?,?,?)
+                INSERT INTO orders(user_id, product_code, product, price, quantity, status, paid_from_wallet)
+                VALUES(?,?,?,?,?,?,1)
             """, (m.from_user.id, pid, product_row["name"], tong_tien, so_luong, "approved"))
             oid = cur.lastrowid
 
@@ -1315,7 +1318,8 @@ async def chon_so_luong(m: Message, state: FSMContext):
                 msg_admin,
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[
-                        [InlineKeyboardButton(text="📦 Giao hàng", callback_data=f"deliver_{oid}")]
+                        [InlineKeyboardButton(text="📦 Giao hàng", callback_data=f"deliver_{oid}")],
+                        [InlineKeyboardButton(text="💸 Huỷ & hoàn ví", callback_data=f"refund_{oid}")]
                     ]
                 )
             )
@@ -1796,6 +1800,113 @@ async def deliver(m: Message, state: FSMContext):
     await state.clear()
 
 
+@dp.callback_query(F.data.startswith("refund_"))
+async def refund_wallet_order(c: CallbackQuery):
+    save_user_info(c.from_user)
+
+    if c.from_user.id != ADMIN_ID:
+        await c.answer("Bạn không có quyền dùng nút này.", show_alert=True)
+        return
+
+    oid = int(c.data.split("_")[1])
+
+    conn = db()
+    cur = conn.cursor()
+
+    try:
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute("""
+            SELECT id, user_id, product_code, product, price, quantity, status, paid_from_wallet
+            FROM orders
+            WHERE id=?
+        """, (oid,))
+        row = cur.fetchone()
+
+        if not row:
+            conn.rollback()
+            conn.close()
+            await c.answer("Không tìm thấy đơn.", show_alert=True)
+            return
+
+        if row["status"] != "approved":
+            conn.rollback()
+            conn.close()
+            await c.answer("Chỉ có thể hoàn ví khi đơn đang ở trạng thái đã duyệt / chờ giao.", show_alert=True)
+            return
+
+        if int(row["paid_from_wallet"] or 0) != 1:
+            conn.rollback()
+            conn.close()
+            await c.answer("Đơn này không thanh toán bằng số dư ví.", show_alert=True)
+            return
+
+        cur.execute("""
+            SELECT code, stock, active
+            FROM products
+            WHERE code=?
+        """, (row["product_code"],))
+        product_row = cur.fetchone()
+
+        if product_row:
+            stock_moi = product_row["stock"] + row["quantity"]
+            active_moi = 1 if stock_moi > 0 else product_row["active"]
+            cur.execute(
+                "UPDATE products SET stock=?, active=? WHERE code=?",
+                (stock_moi, active_moi, product_row["code"])
+            )
+        else:
+            stock_moi = None
+
+        cur.execute("""
+            INSERT INTO wallets(user_id, balance)
+            VALUES(?, 0)
+            ON CONFLICT(user_id) DO NOTHING
+        """, (row["user_id"],))
+        cur.execute("SELECT balance FROM wallets WHERE user_id=?", (row["user_id"],))
+        wallet_row = cur.fetchone()
+        balance_cu = int(wallet_row["balance"]) if wallet_row else 0
+        balance_moi = balance_cu + row["price"]
+
+        cur.execute(
+            "UPDATE wallets SET balance=? WHERE user_id=?",
+            (balance_moi, row["user_id"])
+        )
+        add_wallet_log(cur, row["user_id"], row["price"], "refund", f"Hoàn ví đơn #{oid}")
+        cur.execute("UPDATE orders SET status='reject' WHERE id=?", (oid,))
+
+        conn.commit()
+        conn.close()
+
+    except Exception:
+        conn.rollback()
+        conn.close()
+        await c.answer("Có lỗi khi hoàn tiền về ví.", show_alert=True)
+        return
+
+    await bot.send_message(
+        row["user_id"],
+        f"💸 <b>Đơn #{oid} đã bị huỷ và được hoàn tiền vào ví</b>\n\n"
+        f"📦 Sản phẩm: <b>{html.escape(row['product'])}</b>\n"
+        f"🔢 Số lượng: <b>{row['quantity']}</b>\n"
+        f"💰 Số tiền hoàn: <b>{row['price']:,}đ</b>\n"
+        f"💳 Số dư mới: <b>{balance_moi:,}đ</b>\n\n"
+        f"Nếu cần hỗ trợ, vui lòng liên hệ {SUPPORT_USERNAME}"
+    )
+
+    msg = (
+        f"✅ Đã huỷ đơn #{oid} và hoàn ví thành công\n"
+        f"💰 Số tiền hoàn: <b>{row['price']:,}đ</b>\n"
+        f"💳 Số dư mới của khách: <b>{balance_moi:,}đ</b>\n"
+    )
+    if stock_moi is not None:
+        msg += f"📦 Tồn kho sau hoàn: <b>{stock_moi}</b>"
+    else:
+        msg += "📦 Không cộng lại tồn kho vì không tìm thấy sản phẩm trong bảng kho."
+
+    await c.message.answer(msg)
+    await c.answer("Đã hoàn tiền về ví.")
+
+
 @dp.callback_query(F.data.startswith("deliver_"))
 async def deliver_button(c: CallbackQuery, state: FSMContext):
     save_user_info(c.from_user)
@@ -1844,26 +1955,49 @@ async def no(c: CallbackQuery):
 
     conn = db()
     cur = conn.cursor()
-    cur.execute("""
-        SELECT user_id, product, price, quantity, status
-        FROM orders
-        WHERE id=?
-    """, (oid,))
-    row = cur.fetchone()
 
-    if not row:
+    try:
+        cur.execute("BEGIN IMMEDIATE")
+        cur.execute("""
+            SELECT user_id, product_code, product, price, quantity, status, paid_from_wallet
+            FROM orders
+            WHERE id=?
+        """, (oid,))
+        row = cur.fetchone()
+
+        if not row:
+            conn.rollback()
+            conn.close()
+            await c.answer("Không tìm thấy đơn.", show_alert=True)
+            return
+
+        if row["status"] in ("reject",):
+            conn.rollback()
+            conn.close()
+            await c.answer("Đơn này đã được xử lý trước đó.", show_alert=True)
+            return
+
+        if row["status"] == "approved" and int(row["paid_from_wallet"] or 0) == 1:
+            conn.rollback()
+            conn.close()
+            await c.answer("Đơn thanh toán bằng ví đã duyệt hãy dùng nút '💸 Huỷ & hoàn ví'.", show_alert=True)
+            return
+
+        if row["status"] not in ("check", "pay"):
+            conn.rollback()
+            conn.close()
+            await c.answer("Đơn này đã được xử lý trước đó.", show_alert=True)
+            return
+
+        cur.execute("UPDATE orders SET status='reject' WHERE id=?", (oid,))
+        conn.commit()
         conn.close()
-        await c.answer("Không tìm thấy đơn.", show_alert=True)
-        return
 
-    if row["status"] not in ("check", "pay"):
+    except Exception:
+        conn.rollback()
         conn.close()
-        await c.answer("Đơn này đã được xử lý trước đó.", show_alert=True)
+        await c.answer("Có lỗi khi huỷ đơn.", show_alert=True)
         return
-
-    cur.execute("UPDATE orders SET status='reject' WHERE id=?", (oid,))
-    conn.commit()
-    conn.close()
 
     await bot.send_message(
         row["user_id"],

@@ -32,19 +32,36 @@ DB_NAME = str(BASE_DIR / "shop_bot.db")
 
 # Chỉ dùng để tạo dữ liệu ban đầu vào database
 DEFAULT_PRODUCTS = {
-    "sp1": {"ten": "CapCut Pro 35d_BHF", "gia": 45000, "sl": 5},
-    "sp2": {"ten": "CapCut Pro 14 Ngày_BHF", "gia": 25000, "sl": 7},
-    "sp3": {"ten": "CapCut Pro 1 Năm_BHF", "gia": 450000, "sl": 5},
-    "sp4": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000, "sl": 9},
-    "sp5": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000, "sl": 2},
-    "sp6": {"ten": "Adobe Creative Cloud 3 Tháng", "gia": 159000, "sl": 5},
-    "sp7": {"ten": "Canva Edu 1 Năm", "gia": 149000, "sl": 5},
-    "sp8": {"ten": "Canva Pro 1 Năm", "gia": 289000, "sl": 5},
-    "sp9": {"ten": "Youtube Premium 1 Tháng", "gia": 55000, "sl": 5},
-    "sp10": {"ten": "Youtube 3 Tháng", "gia": 159000, "sl": 5},
-    "sp11": {"ten": "Acc Shoppe Ngâm 5 Tháng Voucher 80k - 100k", "gia": 29000, "sl": 5},
-    "sp12": {"ten": "Đặt Đơn Shopee Giảm 100k", "gia": 59000, "sl": 5},
+    "sp1": {"ten": "Adobe Creative Cloud 3 Tháng", "gia": 159000, "sl": 5, "nhom": "Adobe"},
+
+    "sp2": {"ten": "Acc Shoppe Ngâm 5 Tháng Voucher 80k - 100k", "gia": 29000, "sl": 5, "nhom": "Shopee"},
+    "sp3": {"ten": "Đặt Đơn Shopee Giảm 100k", "gia": 59000, "sl": 5, "nhom": "Shopee"},
+
+    "sp4": {"ten": "Canva Edu 1 Năm", "gia": 149000, "sl": 5, "nhom": "Canva"},
+    "sp5": {"ten": "Canva Pro 1 Năm", "gia": 289000, "sl": 5, "nhom": "Canva"},
+
+    "sp6": {"ten": "CapCut Pro 14 Ngày_BHF", "gia": 25000, "sl": 7, "nhom": "CapCut"},
+    "sp7": {"ten": "CapCut Pro 35d_BHF", "gia": 45000, "sl": 5, "nhom": "CapCut"},
+    "sp8": {"ten": "CapCut Pro 1 Năm_BHF", "gia": 450000, "sl": 5, "nhom": "CapCut"},
+
+    "sp9": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000, "sl": 9, "nhom": "AI Tools"},
+    "sp10": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000, "sl": 2, "nhom": "AI Tools"},
+
+    "sp11": {"ten": "Youtube Premium 1 Tháng", "gia": 55000, "sl": 5, "nhom": "Youtube"},
+    "sp12": {"ten": "Youtube 3 Tháng", "gia": 159000, "sl": 5, "nhom": "Youtube"},
+
+    "sp13": {"ten": "Mã Highlands Coffee Nước Free", "gia": 15000, "sl": 5, "nhom": "Khác"},
 }
+
+CATEGORY_ORDER = [
+    "Adobe",
+    "Shopee",
+    "Canva",
+    "CapCut",
+    "AI Tools",
+    "Youtube",
+    "Khác",
+]
 
 logging.basicConfig(level=logging.INFO)
 
@@ -104,9 +121,16 @@ def init_db():
             name TEXT NOT NULL,
             price INTEGER NOT NULL,
             stock INTEGER NOT NULL DEFAULT 0,
-            active INTEGER NOT NULL DEFAULT 1
+            active INTEGER NOT NULL DEFAULT 1,
+            category TEXT NOT NULL DEFAULT 'Khác'
         )
     """)
+
+    cur.execute("PRAGMA table_info(products)")
+    product_cols = [row["name"] for row in cur.fetchall()]
+
+    if "category" not in product_cols:
+        cur.execute("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Khác'")
 
     for code, info in DEFAULT_PRODUCTS.items():
         cur.execute("SELECT code FROM products WHERE code=?", (code,))
@@ -115,15 +139,15 @@ def init_db():
         if row is None:
             active = 1 if info["sl"] > 0 else 0
             cur.execute("""
-                INSERT INTO products(code, name, price, stock, active)
-                VALUES(?,?,?,?,?)
-            """, (code, info["ten"], info["gia"], info["sl"], active))
+                INSERT INTO products(code, name, price, stock, active, category)
+                VALUES(?,?,?,?,?,?)
+            """, (code, info["ten"], info["gia"], info["sl"], active, info.get("nhom", "Khác")))
         else:
             cur.execute("""
                 UPDATE products
-                SET name=?, price=?
+                SET name=?, price=?, category=?
                 WHERE code=?
-            """, (info["ten"], info["gia"], code))
+            """, (info["ten"], info["gia"], info.get("nhom", "Khác"), code))
 
     conn.commit()
     conn.close()
@@ -141,17 +165,28 @@ def tao_qr(order_id, amount):
 def menu():
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🛍 Xem sản phẩm", callback_data="sp")],
+            [InlineKeyboardButton(text="🛍 Xem nhóm sản phẩm", callback_data="sp")],
             [InlineKeyboardButton(text="☎️ Hỗ trợ", callback_data="contact")],
         ]
     )
+
+
+def get_categories():
+    return CATEGORY_ORDER
+
+
+def category_sort_key(cat_name: str):
+    try:
+        return CATEGORY_ORDER.index(cat_name)
+    except ValueError:
+        return 999
 
 
 def get_product_by_code(pid: str):
     conn = db()
     cur = conn.cursor()
     cur.execute("""
-        SELECT code, name, price, stock, active
+        SELECT code, name, price, stock, active, category
         FROM products
         WHERE code=?
     """, (pid,))
@@ -164,18 +199,34 @@ def get_all_products():
     conn = db()
     cur = conn.cursor()
     cur.execute("""
-        SELECT code, name, price, stock, active
+        SELECT code, name, price, stock, active, category
         FROM products
-        ORDER BY code
     """)
     rows = cur.fetchall()
     conn.close()
+
+    rows = sorted(rows, key=lambda p: (category_sort_key(p["category"]), p["name"].lower()))
     return rows
 
 
-def list_sp():
+def category_menu():
     rows = []
-    products = get_all_products()
+
+    for cat in get_categories():
+        rows.append([
+            InlineKeyboardButton(
+                text=f"📂 {cat}",
+                callback_data=f"cat_{cat}"
+            )
+        ])
+
+    rows.append([InlineKeyboardButton(text="🏠 Menu", callback_data="menu")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def list_sp_by_category(category_name: str):
+    rows = []
+    products = [p for p in get_all_products() if p["category"] == category_name]
 
     for i, p in enumerate(products, start=1):
         stock = p["stock"]
@@ -193,7 +244,17 @@ def list_sp():
             )
         ])
 
+    if not products:
+        rows.append([
+            InlineKeyboardButton(
+                text="Không có sản phẩm trong nhóm này",
+                callback_data="none"
+            )
+        ])
+
+    rows.append([InlineKeyboardButton(text="⬅️ Quay lại nhóm", callback_data="sp")])
     rows.append([InlineKeyboardButton(text="🏠 Menu", callback_data="menu")])
+
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -203,7 +264,7 @@ async def start(m: Message):
         "Chào bạn 👋\n\n"
         "Các lệnh có thể dùng:\n"
         "/start - Bắt đầu\n"
-        "/menu - Xem sản phẩm\n"
+        "/menu - Xem nhóm sản phẩm\n"
         "/help - Hỗ trợ\n"
         "/donhang - Đơn hàng đã mua\n\n"
         f"Nếu cần hỗ trợ thêm, nhắn {SUPPORT_USERNAME}"
@@ -213,7 +274,7 @@ async def start(m: Message):
 
 @dp.message(Command("menu"))
 async def menu_command(m: Message):
-    await m.answer("🛍 Danh sách sản phẩm:", reply_markup=list_sp())
+    await m.answer("🛍 Chọn nhóm sản phẩm:", reply_markup=category_menu())
 
 
 @dp.message(Command("help"))
@@ -221,7 +282,7 @@ async def help_command(m: Message):
     text = (
         "<b>Hỗ trợ sử dụng bot</b>\n\n"
         "/start - Bắt đầu\n"
-        "/menu - Xem sản phẩm\n"
+        "/menu - Xem nhóm sản phẩm\n"
         "/help - Hỗ trợ\n"
         "/donhang - Xem đơn hàng đã mua\n"
         "/update - Cập nhật số lượng sản phẩm (chỉ admin)\n"
@@ -287,6 +348,7 @@ async def tonkho_command(m: Message):
         trang_thai = "Đang bán" if p["active"] == 1 and p["stock"] > 0 else "Hết hàng / Đang khóa"
         text += (
             f"{i}. <b>{html.escape(p['name'])}</b>\n"
+            f"📂 Nhóm: <b>{html.escape(p['category'])}</b>\n"
             f"💰 Giá: <b>{p['price']:,}đ</b>\n"
             f"📦 Tồn kho: <b>{p['stock']}</b>\n"
             f"📌 Trạng thái: <b>{trang_thai}</b>\n\n"
@@ -303,7 +365,7 @@ async def back(c: CallbackQuery):
 
 @dp.callback_query(F.data == "sp")
 async def sp(c: CallbackQuery):
-    await c.message.edit_text("🛍 Danh sách sản phẩm:", reply_markup=list_sp())
+    await c.message.edit_text("🛍 Chọn nhóm sản phẩm:", reply_markup=category_menu())
     await c.answer()
 
 
@@ -312,6 +374,21 @@ async def contact(c: CallbackQuery):
     await c.message.edit_text(
         f"☎️ Hỗ trợ: {SUPPORT_USERNAME}",
         reply_markup=menu()
+    )
+    await c.answer()
+
+
+@dp.callback_query(F.data == "none")
+async def none_callback(c: CallbackQuery):
+    await c.answer()
+
+
+@dp.callback_query(F.data.startswith("cat_"))
+async def show_category(c: CallbackQuery):
+    category_name = c.data.split("_", 1)[1]
+    await c.message.edit_text(
+        f"🛍 Nhóm sản phẩm: <b>{html.escape(category_name)}</b>",
+        reply_markup=list_sp_by_category(category_name)
     )
     await c.answer()
 
@@ -341,6 +418,7 @@ async def buy(c: CallbackQuery, state: FSMContext):
 
     await c.message.answer(
         f"📦 Sản phẩm: <b>{html.escape(p['name'])}</b>\n"
+        f"📂 Nhóm: <b>{html.escape(p['category'])}</b>\n"
         f"💰 Đơn giá: <b>{p['price']:,}đ</b>\n"
         f"📦 Còn lại: <b>{p['stock']}</b>\n\n"
         "Vui lòng nhập số lượng muốn mua:\nVí dụ: 1 - 2 - 3 - 4"
@@ -414,6 +492,7 @@ async def chon_so_luong(m: Message, state: FSMContext):
     caption = (
         f"<b>Đơn #{oid}</b>\n"
         f"📦 Sản phẩm: <b>{html.escape(p['name'])}</b>\n"
+        f"📂 Nhóm: <b>{html.escape(p['category'])}</b>\n"
         f"🔢 Số lượng: <b>{so_luong}</b>\n"
         f"💰 Đơn giá: <b>{p['price']:,}đ</b>\n"
         f"💵 Tổng tiền: <b>{tong_tien:,}đ</b>\n\n"
@@ -535,7 +614,7 @@ async def ok(c: CallbackQuery):
             return
 
         cur.execute("""
-            SELECT code, name, price, stock, active
+            SELECT code, name, price, stock, active, category
             FROM products
             WHERE code=?
         """, (order_row["product_code"],))
@@ -788,6 +867,7 @@ async def update_stock_menu(m: Message, state: FSMContext):
         trang_thai = "Đang bán" if p["active"] == 1 and p["stock"] > 0 else "Hết hàng / Đang khóa"
         text += (
             f"{i}. {html.escape(p['name'])} | "
+            f"Nhóm: {html.escape(p['category'])} | "
             f"Còn: {p['stock']} | "
             f"Trạng thái: {trang_thai}\n"
         )
@@ -852,6 +932,7 @@ async def update_stock_save(m: Message, state: FSMContext):
     await m.answer(
         f"✅ Đã cập nhật:\n"
         f"📦 Sản phẩm: <b>{html.escape(p['name'])}</b>\n"
+        f"📂 Nhóm: <b>{html.escape(p['category'])}</b>\n"
         f"📌 Số lượng mới: <b>{so_luong_moi}</b>\n"
         f"📌 Trạng thái mới: <b>{trang_thai}</b>\n\n"
         "Tiếp tục nhập theo mẫu <code>stt số_lượng</code> nếu muốn sửa thêm,\n"

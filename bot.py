@@ -8,7 +8,7 @@ from urllib.parse import quote
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
-from aiogram.filters import Command, StateFilter
+from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
@@ -83,11 +83,8 @@ class AdminFlow(StatesGroup):
 
 
 def db():
-    conn = sqlite3.connect(DB_NAME, timeout=30, check_same_thread=False)
+    conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA busy_timeout=30000")
-    conn.execute("PRAGMA foreign_keys=ON")
     return conn
 
 
@@ -235,34 +232,6 @@ def get_product_by_code(pid: str):
     return row
 
 
-def get_order_by_id(oid: int):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, user_id, product_code, product, price, quantity, status, proof, delivery
-        FROM orders
-        WHERE id=?
-    """, (oid,))
-    row = cur.fetchone()
-    conn.close()
-    return row
-
-
-def get_recent_deliverable_orders(limit: int = 10):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, product, price, quantity, status
-        FROM orders
-        WHERE status IN ('approved', 'done')
-        ORDER BY id DESC
-        LIMIT ?
-    """, (limit,))
-    rows = cur.fetchall()
-    conn.close()
-    return rows
-
-
 def get_all_products():
     conn = db()
     cur = conn.cursor()
@@ -366,13 +335,6 @@ async def start(m: Message):
 async def menu_command(m: Message):
     save_user_info(m.from_user)
     await m.answer("🛍 Chọn nhóm sản phẩm:", reply_markup=category_menu())
-
-
-@dp.message(StateFilter("*"), Command("huy"))
-async def huy_lenh(m: Message, state: FSMContext):
-    save_user_info(m.from_user)
-    await state.clear()
-    await m.answer("Đã huỷ thao tác hiện tại.", reply_markup=menu())
 
 
 @dp.message(Command("help"))
@@ -989,11 +951,6 @@ async def nhac_gui_bill(m: Message):
 @dp.callback_query(F.data.startswith("ok_"))
 async def ok(c: CallbackQuery):
     save_user_info(c.from_user)
-
-    if c.from_user.id != ADMIN_ID:
-        await c.answer("Bạn không có quyền duyệt đơn.", show_alert=True)
-        return
-
     oid = int(c.data.split("_")[1])
 
     conn = db()
@@ -1093,7 +1050,14 @@ async def ok(c: CallbackQuery):
         f"<code>/gui {oid}</code>"
     )
 
-    await c.message.answer(msg_admin)
+    await c.message.answer(
+        msg_admin,
+        reply_markup=InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="📦 Giao hàng", callback_data=f"deliver_{oid}")]
+            ]
+        )
+    )
 
     msg_user = (
         f"✅ Đơn #{oid} đã được duyệt\n"
@@ -1104,62 +1068,10 @@ async def ok(c: CallbackQuery):
     )
 
     await bot.send_message(uid, msg_user)
-
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
-
     await c.answer("Đã duyệt đơn.")
 
 
-@dp.callback_query(F.data.startswith("deliver_"))
-async def deliver_callback(c: CallbackQuery, state: FSMContext):
-    save_user_info(c.from_user)
-
-    if c.from_user.id != ADMIN_ID:
-        await c.answer("Bạn không có quyền giao hàng.", show_alert=True)
-        return
-
-    oid_text = c.data.split("_", 1)[1]
-    if not oid_text.isdigit():
-        await c.answer("Mã đơn không hợp lệ.", show_alert=True)
-        return
-
-    oid = int(oid_text)
-
-    await state.clear()
-
-    row = get_order_by_id(oid)
-    if not row:
-        await c.answer("Không tìm thấy đơn hàng.", show_alert=True)
-        return
-
-    if row["status"] not in ("approved", "done"):
-        await c.answer("Đơn này chưa được duyệt để giao hàng.", show_alert=True)
-        return
-
-    await state.set_state(AdminFlow.nhap_noi_dung)
-    await state.update_data(oid=oid)
-
-    await c.message.answer(
-        f"📌 Đã chọn đơn #{oid}
-"
-        f"📦 Sản phẩm: <b>{html.escape(row['product'])}</b>
-"
-        f"🔢 Số lượng: <b>{row['quantity']}</b>
-"
-        f"💰 Tổng tiền: <b>{row['price']:,}đ</b>
-
-"
-        "Bây giờ bạn nhập nội dung giao hàng dạng text.
-"
-        "Muốn thoát thì nhập: <code>huy</code>"
-    )
-    await c.answer("Đã mở giao hàng cho đơn này.")
-
-
-@dp.message(StateFilter("*"), Command("gui"))
+@dp.message(Command("gui"))
 async def chon_don_gui(m: Message, state: FSMContext):
     save_user_info(m.from_user)
 
@@ -1169,54 +1081,31 @@ async def chon_don_gui(m: Message, state: FSMContext):
 
     parts = m.text.strip().split()
     if len(parts) != 2 or not parts[1].isdigit():
-        recent_rows = get_recent_deliverable_orders()
-        text = "Cách dùng đúng: <code>/gui 12</code>\n"
-
-        if recent_rows:
-            text += "\n<b>Các đơn đã duyệt / đã giao gần đây:</b>\n"
-            for item in recent_rows:
-                text += (
-                    f"- <code>#{item['id']}</code> | "
-                    f"{html.escape(item['product'])} | "
-                    f"SL: {item['quantity']} | "
-                    f"Trạng thái: {item['status']}\n"
-                )
-
-        await m.answer(text)
+        await m.answer("Cách dùng đúng: <code>/gui 12</code>")
         return
 
     oid = int(parts[1])
 
-    await state.clear()
-
-    row = get_order_by_id(oid)
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT user_id, product, price, quantity, status
+        FROM orders
+        WHERE id=?
+    """, (oid,))
+    row = cur.fetchone()
+    conn.close()
 
     if not row:
-        recent_rows = get_recent_deliverable_orders()
-        text = (
+        await m.answer(
             f"Không tìm thấy đơn hàng #{oid}.\n"
-            f"Bot đang dùng database: <code>{html.escape(DB_NAME)}</code>\n\n"
+            f"Bot đang dùng database: <code>{html.escape(DB_NAME)}</code>"
         )
-
-        if recent_rows:
-            text += "<b>Các đơn đã duyệt / đã giao gần đây:</b>\n"
-            for item in recent_rows:
-                text += (
-                    f"- <code>#{item['id']}</code> | "
-                    f"{html.escape(item['product'])} | "
-                    f"SL: {item['quantity']} | "
-                    f"Trạng thái: {item['status']}\n"
-                )
-            text += "\nHãy dùng đúng <b>mã đơn</b> sau lệnh <code>/gui</code>."
-        else:
-            text += "Hiện chưa có đơn nào ở trạng thái approved hoặc done."
-
-        await m.answer(text)
         return
 
     if row["status"] not in ("approved", "done"):
         await m.answer(
-            "Đơn này chưa được duyệt để giao hàng.\n"
+            "Đơn này chưa ở trạng thái được giao.\n"
             "Hãy bấm DUYỆT trước rồi mới dùng /gui."
         )
         return
@@ -1229,21 +1118,13 @@ async def chon_don_gui(m: Message, state: FSMContext):
         f"📦 Sản phẩm: <b>{html.escape(row['product'])}</b>\n"
         f"🔢 Số lượng: <b>{row['quantity']}</b>\n"
         f"💰 Tổng tiền: <b>{row['price']:,}đ</b>\n\n"
-        "Bây giờ bạn nhập nội dung giao hàng dạng text.\n"
-        "Muốn thoát thì nhập: <code>huy</code>"
+        "Bây giờ bạn nhập nội dung giao hàng dạng text."
     )
 
 
 @dp.message(AdminFlow.nhap_noi_dung)
 async def deliver(m: Message, state: FSMContext):
     if m.from_user.id != ADMIN_ID:
-        return
-
-    raw_text = m.text.strip() if m.text else ""
-
-    if raw_text.lower() == "huy":
-        await state.clear()
-        await m.answer("Đã huỷ giao đơn.")
         return
 
     data = await state.get_data()
@@ -1273,6 +1154,7 @@ async def deliver(m: Message, state: FSMContext):
     product_name = row["product"]
     quantity = row["quantity"]
 
+    raw_text = m.text.strip() if m.text else ""
     if not raw_text:
         await m.answer("Bạn hãy nhập nội dung giao hàng dạng text.")
         conn.close()
@@ -1310,11 +1192,6 @@ async def deliver(m: Message, state: FSMContext):
 @dp.callback_query(F.data.startswith("no_"))
 async def no(c: CallbackQuery):
     save_user_info(c.from_user)
-
-    if c.from_user.id != ADMIN_ID:
-        await c.answer("Bạn không có quyền huỷ đơn.", show_alert=True)
-        return
-
     oid = int(c.data.split("_")[1])
 
     conn = db()
@@ -1348,11 +1225,6 @@ async def no(c: CallbackQuery):
         f"💰 Tổng tiền: <b>{row['price']:,}đ</b>\n\n"
         f"Nếu cần hỗ trợ, vui lòng liên hệ {SUPPORT_USERNAME}"
     )
-
-    try:
-        await c.message.edit_reply_markup(reply_markup=None)
-    except Exception:
-        pass
 
     await c.answer("Đã huỷ đơn.")
 
@@ -1537,7 +1409,6 @@ async def suagia_save(m: Message, state: FSMContext):
 
 async def main():
     init_db()
-    logging.info("Bot dang dung database: %s", DB_NAME)
     await dp.start_polling(bot)
 
 

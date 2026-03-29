@@ -351,7 +351,8 @@ async def help_command(m: Message):
         "/tonkho - Xem tồn kho nhanh (chỉ admin)\n"
         "/themsp - Thêm sản phẩm mới (chỉ admin)\n"
         "/xoasp - Xoá sản phẩm ngay trong bot (chỉ admin)\n"
-        "/thongbao - Gửi thông báo tới tất cả user đã từng nhắn bot (chỉ admin)\n\n"
+        "/thongbao - Gửi thông báo tới tất cả user đã từng nhắn bot (chỉ admin)\n"
+        "/users - Xem danh sách user đã từng nhắn bot (chỉ admin)\n\n"
         f"Liên hệ hỗ trợ: {SUPPORT_USERNAME}"
     )
     await m.answer(text)
@@ -423,6 +424,51 @@ async def tonkho_command(m: Message):
         )
 
     await m.answer(text)
+
+
+@dp.message(Command("users"))
+async def users_command(m: Message):
+    save_user_info(m.from_user)
+
+    if m.from_user.id != ADMIN_ID:
+        await m.answer("Bạn không có quyền dùng lệnh này.")
+        return
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT user_id, full_name, username
+        FROM users
+        ORDER BY user_id DESC
+    """)
+    rows = cur.fetchall()
+    conn.close()
+
+    if not rows:
+        await m.answer("Chưa có user nào từng nhắn bot.")
+        return
+
+    text = "<b>👥 DANH SÁCH USER ĐÃ TỪNG NHẮN BOT</b>\n\n"
+
+    for i, row in enumerate(rows, start=1):
+        full_name = html.escape(row["full_name"] or "Không có tên")
+        username = html.escape(row["username"] or "Không có username")
+        user_id = row["user_id"]
+
+        block = (
+            f"{i}. 👤 <b>{full_name}</b>\n"
+            f"🔗 Username: <b>{username}</b>\n"
+            f"🆔 ID: <code>{user_id}</code>\n\n"
+        )
+
+        if len(text) + len(block) > 3800:
+            await m.answer(text)
+            text = ""
+
+        text += block
+
+    if text:
+        await m.answer(text)
 
 
 @dp.message(Command("themsp"))
@@ -1187,6 +1233,47 @@ async def deliver(m: Message, state: FSMContext):
     )
 
     await state.clear()
+
+
+@dp.callback_query(F.data.startswith("deliver_"))
+async def deliver_button(c: CallbackQuery, state: FSMContext):
+    save_user_info(c.from_user)
+
+    if c.from_user.id != ADMIN_ID:
+        await c.answer("Bạn không có quyền dùng nút này.", show_alert=True)
+        return
+
+    oid = int(c.data.split("_")[1])
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        SELECT user_id, product, price, quantity, status
+        FROM orders
+        WHERE id=?
+    """, (oid,))
+    row = cur.fetchone()
+    conn.close()
+
+    if not row:
+        await c.answer("Không tìm thấy đơn hàng.", show_alert=True)
+        return
+
+    if row["status"] not in ("approved", "done"):
+        await c.answer("Đơn này chưa sẵn sàng để giao.", show_alert=True)
+        return
+
+    await state.set_state(AdminFlow.nhap_noi_dung)
+    await state.update_data(oid=oid)
+
+    await c.message.answer(
+        f"📌 Đã chọn đơn #{oid}\n"
+        f"📦 Sản phẩm: <b>{html.escape(row['product'])}</b>\n"
+        f"🔢 Số lượng: <b>{row['quantity']}</b>\n"
+        f"💰 Tổng tiền: <b>{row['price']:,}đ</b>\n\n"
+        "Bây giờ bạn nhập nội dung giao hàng dạng text."
+    )
+    await c.answer("Đã chọn đơn để giao.")
 
 
 @dp.callback_query(F.data.startswith("no_"))

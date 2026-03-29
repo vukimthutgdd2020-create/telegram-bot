@@ -44,8 +44,8 @@ DEFAULT_PRODUCTS = {
     "sp7": {"ten": "CapCut Pro 35d_BHF", "gia": 45000, "sl": 5, "nhom": "CapCut"},
     "sp8": {"ten": "CapCut Pro 1 Năm_BHF", "gia": 450000, "sl": 5, "nhom": "CapCut"},
 
-    "sp9": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000, "sl": 9, "nhom": "AI Tools"},
-    "sp10": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000, "sl": 2, "nhom": "AI Tools"},
+    "sp9": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000, "sl": 9, "nhom": "ChatGPT + Gemini"},
+    "sp10": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000, "sl": 2, "nhom": "ChatGPT + Gemini"},
 
     "sp11": {"ten": "Youtube Premium 1 Tháng", "gia": 55000, "sl": 5, "nhom": "Youtube"},
     "sp12": {"ten": "Youtube 3 Tháng", "gia": 159000, "sl": 5, "nhom": "Youtube"},
@@ -58,7 +58,7 @@ CATEGORY_ORDER = [
     "Shopee",
     "Canva",
     "CapCut",
-    "AI Tools",
+    "ChatGPT + Gemini",
     "Youtube",
     "Khác",
 ]

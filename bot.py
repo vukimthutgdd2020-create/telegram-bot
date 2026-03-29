@@ -73,6 +73,7 @@ class BuyFlow(StatesGroup):
 class AdminFlow(StatesGroup):
     nhap_noi_dung = State()
     update_so_luong = State()
+    sua_gia = State()
     them_ten = State()
     them_gia = State()
     them_so_luong = State()
@@ -346,6 +347,7 @@ async def help_command(m: Message):
         "/help - Hỗ trợ\n"
         "/donhang - Xem đơn hàng đã mua\n"
         "/update - Cập nhật số lượng sản phẩm (chỉ admin)\n"
+        "/suagia - Sửa giá sản phẩm (chỉ admin)\n"
         "/tonkho - Xem tồn kho nhanh (chỉ admin)\n"
         "/themsp - Thêm sản phẩm mới (chỉ admin)\n"
         "/xoasp - Xoá sản phẩm ngay trong bot (chỉ admin)\n"
@@ -1304,6 +1306,96 @@ async def update_stock_save(m: Message, state: FSMContext):
         f"📌 Số lượng mới: <b>{so_luong_moi}</b>\n"
         f"📌 Trạng thái mới: <b>{trang_thai}</b>\n\n"
         "Tiếp tục nhập theo mẫu <code>stt số_lượng</code> nếu muốn sửa thêm,\n"
+        "hoặc nhập <code>huy</code> để thoát."
+    )
+
+
+@dp.message(Command("suagia"))
+async def suagia_command(m: Message, state: FSMContext):
+    save_user_info(m.from_user)
+
+    if m.from_user.id != ADMIN_ID:
+        await m.answer("Bạn không có quyền dùng lệnh này.")
+        return
+
+    products = get_all_products()
+
+    if not products:
+        await m.answer("Chưa có sản phẩm nào để sửa giá.")
+        return
+
+    text = "<b>💰 DANH SÁCH SẢN PHẨM CÓ THỂ SỬA GIÁ</b>\n\n"
+    for i, p in enumerate(products, start=1):
+        text += (
+            f"{i}. <b>{html.escape(p['name'])}</b>\n"
+            f"📂 Nhóm: <b>{html.escape(p['category'])}</b>\n"
+            f"💰 Giá hiện tại: <b>{p['price']:,}đ</b>\n"
+            f"📦 Tồn kho: <b>{p['stock']}</b>\n\n"
+        )
+
+    text += (
+        "Nhập theo mẫu:\n"
+        "<code>1 99000</code>\n"
+        "Nghĩa là: sản phẩm số 1 sửa giá thành 99.000đ.\n\n"
+        "Muốn thoát thì nhập: <code>huy</code>"
+    )
+
+    await state.set_state(AdminFlow.sua_gia)
+    await m.answer(text)
+
+
+@dp.message(AdminFlow.sua_gia)
+async def suagia_save(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    text = m.text.strip() if m.text else ""
+
+    if text.lower() == "huy":
+        await state.clear()
+        await m.answer("Đã huỷ sửa giá sản phẩm.")
+        return
+
+    parts = text.split()
+    if len(parts) != 2 or not parts[0].isdigit() or not parts[1].isdigit():
+        await m.answer(
+            "Sai định dạng.\n"
+            "Nhập theo mẫu: <code>1 99000</code>\n"
+            "Nghĩa là sản phẩm số 1 có giá mới là 99.000đ."
+        )
+        return
+
+    stt = int(parts[0])
+    gia_moi = int(parts[1])
+
+    if gia_moi <= 0:
+        await m.answer("Giá mới phải lớn hơn 0.")
+        return
+
+    products = get_all_products()
+
+    if stt <= 0 or stt > len(products):
+        await m.answer("Số thứ tự sản phẩm không hợp lệ.")
+        return
+
+    p = products[stt - 1]
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        UPDATE products
+        SET price=?
+        WHERE code=?
+    """, (gia_moi, p["code"]))
+    conn.commit()
+    conn.close()
+
+    await m.answer(
+        f"✅ Đã cập nhật giá sản phẩm:\n"
+        f"📦 Sản phẩm: <b>{html.escape(p['name'])}</b>\n"
+        f"📂 Nhóm: <b>{html.escape(p['category'])}</b>\n"
+        f"💰 Giá mới: <b>{gia_moi:,}đ</b>\n\n"
+        "Tiếp tục nhập theo mẫu <code>stt giá_mới</code> nếu muốn sửa thêm,\n"
         "hoặc nhập <code>huy</code> để thoát."
     )
 

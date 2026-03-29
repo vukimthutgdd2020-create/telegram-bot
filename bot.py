@@ -2,8 +2,6 @@ import asyncio
 import logging
 import sqlite3
 import html
-import random
-import time
 from pathlib import Path
 from urllib.parse import quote
 
@@ -73,12 +71,6 @@ class BuyFlow(StatesGroup):
     cho_bill = State()
 
 
-class OTPFlow(StatesGroup):
-    nhap_ten_moi = State()
-    nhap_sdt_moi = State()
-    nhap_otp_xac_nhan = State()
-
-
 class AdminFlow(StatesGroup):
     nhap_noi_dung = State()
     update_so_luong = State()
@@ -123,107 +115,6 @@ def deactivate_user(user_id: int):
     conn = db()
     cur = conn.cursor()
     cur.execute("UPDATE users SET is_active=0 WHERE user_id=?", (user_id,))
-    conn.commit()
-    conn.close()
-
-
-def tao_otp_code():
-    return str(random.randint(100000, 999999))
-
-
-def is_valid_phone(phone: str) -> bool:
-    if not phone.isdigit():
-        return False
-    if len(phone) < 9 or len(phone) > 11:
-        return False
-    return True
-
-
-def get_user_profile(user_id: int):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT user_id, internal_name, internal_phone
-        FROM user_profiles
-        WHERE user_id=?
-    """, (user_id,))
-    row = cur.fetchone()
-    conn.close()
-    return row
-
-
-def upsert_user_profile(user_id: int, internal_name: str, internal_phone: str):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO user_profiles(user_id, internal_name, internal_phone)
-        VALUES(?,?,?)
-        ON CONFLICT(user_id) DO UPDATE SET
-            internal_name=excluded.internal_name,
-            internal_phone=excluded.internal_phone
-    """, (user_id, internal_name, internal_phone))
-    conn.commit()
-    conn.close()
-
-
-def create_otp_change_request(user_id: int, new_name: str, new_phone: str):
-    code = tao_otp_code()
-    expires_at = int(time.time()) + 300
-
-    conn = db()
-    cur = conn.cursor()
-
-    cur.execute("""
-        UPDATE otp_codes
-        SET used=1
-        WHERE user_id=? AND purpose='change_profile' AND used=0
-    """, (user_id,))
-
-    cur.execute("""
-        INSERT INTO otp_codes(user_id, purpose, code, new_name, new_phone, expires_at, attempts, used)
-        VALUES(?,?,?,?,?,?,0,0)
-    """, (user_id, "change_profile", code, new_name, new_phone, expires_at))
-
-    conn.commit()
-    conn.close()
-    return code
-
-
-def get_latest_active_otp(user_id: int, purpose: str):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT id, user_id, purpose, code, new_name, new_phone, expires_at, attempts, used
-        FROM otp_codes
-        WHERE user_id=? AND purpose=? AND used=0
-        ORDER BY id DESC
-        LIMIT 1
-    """, (user_id, purpose))
-    row = cur.fetchone()
-    conn.close()
-    return row
-
-
-def increase_otp_attempt(otp_id: int):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE otp_codes
-        SET attempts = attempts + 1
-        WHERE id=?
-    """, (otp_id,))
-    conn.commit()
-    conn.close()
-
-
-def mark_otp_used(otp_id: int):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE otp_codes
-        SET used=1
-        WHERE id=?
-    """, (otp_id,))
     conn.commit()
     conn.close()
 
@@ -285,28 +176,6 @@ def init_db():
 
     if "category" not in product_cols:
         cur.execute("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Mã Highlands Coffee Free'")
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS user_profiles(
-            user_id INTEGER PRIMARY KEY,
-            internal_name TEXT DEFAULT '',
-            internal_phone TEXT DEFAULT ''
-        )
-    """)
-
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS otp_codes(
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            purpose TEXT NOT NULL,
-            code TEXT NOT NULL,
-            new_name TEXT DEFAULT '',
-            new_phone TEXT DEFAULT '',
-            expires_at INTEGER NOT NULL,
-            attempts INTEGER NOT NULL DEFAULT 0,
-            used INTEGER NOT NULL DEFAULT 0
-        )
-    """)
 
     for code, info in DEFAULT_PRODUCTS.items():
         cur.execute("SELECT code FROM products WHERE code=?", (code,))
@@ -502,9 +371,7 @@ async def start(m: Message):
         "/start - Bắt đầu\n"
         "/menu - Xem nhóm sản phẩm\n"
         "/help - Hỗ trợ\n"
-        "/donhang - Đơn hàng đã mua\n"
-        "/taikhoan - Xem tài khoản nội bộ\n"
-        "/doithongtin - Đổi thông tin tài khoản nội bộ\n\n"
+        "/donhang - Đơn hàng đã mua\n\n"
         f"Nếu cần hỗ trợ thêm, nhắn {SUPPORT_USERNAME}"
     )
     await m.answer(text, reply_markup=menu())
@@ -525,8 +392,6 @@ async def help_command(m: Message):
         "/menu - Xem nhóm sản phẩm\n"
         "/help - Hỗ trợ\n"
         "/donhang - Xem đơn hàng đã mua\n"
-        "/taikhoan - Xem tài khoản nội bộ\n"
-        "/doithongtin - Đổi thông tin tài khoản nội bộ\n"
         "/update - Cập nhật số lượng sản phẩm (chỉ admin)\n"
         "/suagia - Sửa giá sản phẩm (chỉ admin)\n"
         "/tonkho - Xem tồn kho nhanh (chỉ admin)\n"
@@ -537,176 +402,6 @@ async def help_command(m: Message):
         f"Liên hệ hỗ trợ: {SUPPORT_USERNAME}"
     )
     await m.answer(text)
-
-
-@dp.message(Command("taikhoan"))
-async def taikhoan_command(m: Message):
-    save_user_info(m.from_user)
-
-    profile = get_user_profile(m.from_user.id)
-
-    if not profile:
-        await m.answer(
-            "<b>📋 Tài khoản nội bộ</b>\n\n"
-            "Bạn chưa có thông tin nội bộ.\n"
-            "Dùng lệnh /doithongtin để tạo hoặc cập nhật."
-        )
-        return
-
-    ten = html.escape(profile["internal_name"] or "Chưa có")
-    sdt = html.escape(profile["internal_phone"] or "Chưa có")
-
-    await m.answer(
-        "<b>📋 Tài khoản nội bộ</b>\n\n"
-        f"👤 Tên hiển thị: <b>{ten}</b>\n"
-        f"📱 Số điện thoại nội bộ: <b>{sdt}</b>\n\n"
-        "Dùng /doithongtin để cập nhật."
-    )
-
-
-@dp.message(Command("doithongtin"))
-async def doithongtin_command(m: Message, state: FSMContext):
-    save_user_info(m.from_user)
-
-    await state.set_state(OTPFlow.nhap_ten_moi)
-    await m.answer(
-        "🔐 <b>Đổi thông tin tài khoản nội bộ</b>\n\n"
-        "Nhập <b>tên hiển thị mới</b>.\n"
-        "Muốn thoát thì nhập: <code>huy</code>"
-    )
-
-
-@dp.message(OTPFlow.nhap_ten_moi)
-async def otp_nhap_ten_moi(m: Message, state: FSMContext):
-    save_user_info(m.from_user)
-
-    text = m.text.strip() if m.text else ""
-
-    if text.lower() == "huy":
-        await state.clear()
-        await m.answer("Đã huỷ đổi thông tin.")
-        return
-
-    if not text:
-        await m.answer("Tên hiển thị mới không được để trống.")
-        return
-
-    await state.update_data(new_name=text)
-    await state.set_state(OTPFlow.nhap_sdt_moi)
-    await m.answer(
-        "Nhập <b>số điện thoại nội bộ mới</b>.\n"
-        "Ví dụ: <code>0912345678</code>"
-    )
-
-
-@dp.message(OTPFlow.nhap_sdt_moi)
-async def otp_nhap_sdt_moi(m: Message, state: FSMContext):
-    save_user_info(m.from_user)
-
-    text = m.text.strip() if m.text else ""
-
-    if text.lower() == "huy":
-        await state.clear()
-        await m.answer("Đã huỷ đổi thông tin.")
-        return
-
-    if not is_valid_phone(text):
-        await m.answer(
-            "Số điện thoại không hợp lệ.\n"
-            "Chỉ nhập số, độ dài khoảng 9 đến 11 số."
-        )
-        return
-
-    data = await state.get_data()
-    new_name = data.get("new_name")
-
-    if not new_name:
-        await state.clear()
-        await m.answer("Thiếu dữ liệu. Hãy dùng /doithongtin lại từ đầu.")
-        return
-
-    code = create_otp_change_request(
-        user_id=m.from_user.id,
-        new_name=new_name,
-        new_phone=text
-    )
-
-    await state.set_state(OTPFlow.nhap_otp_xac_nhan)
-
-    await m.answer(
-        "🔑 <b>Mã OTP xác nhận đổi thông tin</b>\n\n"
-        f"Mã của bạn là: <code>{code}</code>\n"
-        "Mã có hiệu lực trong <b>5 phút</b>.\n"
-        "Vui lòng nhập lại mã OTP để xác nhận."
-    )
-
-
-@dp.message(OTPFlow.nhap_otp_xac_nhan)
-async def otp_xac_nhan_doi_thong_tin(m: Message, state: FSMContext):
-    save_user_info(m.from_user)
-
-    text = m.text.strip() if m.text else ""
-
-    if text.lower() == "huy":
-        await state.clear()
-        await m.answer("Đã huỷ đổi thông tin.")
-        return
-
-    otp_row = get_latest_active_otp(m.from_user.id, "change_profile")
-
-    if not otp_row:
-        await state.clear()
-        await m.answer("Không tìm thấy OTP đang hoạt động. Hãy dùng /doithongtin lại.")
-        return
-
-    now_ts = int(time.time())
-
-    if otp_row["used"] == 1:
-        await state.clear()
-        await m.answer("OTP này đã được dùng. Hãy dùng /doithongtin lại.")
-        return
-
-    if now_ts > otp_row["expires_at"]:
-        mark_otp_used(otp_row["id"])
-        await state.clear()
-        await m.answer("OTP đã hết hạn. Hãy dùng /doithongtin lại.")
-        return
-
-    if otp_row["attempts"] >= 5:
-        mark_otp_used(otp_row["id"])
-        await state.clear()
-        await m.answer("Bạn đã nhập sai quá số lần cho phép. Hãy dùng /doithongtin lại.")
-        return
-
-    if text != otp_row["code"]:
-        increase_otp_attempt(otp_row["id"])
-
-        otp_row_after = get_latest_active_otp(m.from_user.id, "change_profile")
-        so_lan_con = 5 - (otp_row_after["attempts"] if otp_row_after else 5)
-
-        if so_lan_con <= 0:
-            if otp_row_after:
-                mark_otp_used(otp_row_after["id"])
-            await state.clear()
-            await m.answer("OTP sai quá 5 lần. Yêu cầu đã bị huỷ.")
-            return
-
-        await m.answer(f"OTP không đúng. Bạn còn <b>{so_lan_con}</b> lần thử.")
-        return
-
-    upsert_user_profile(
-        user_id=m.from_user.id,
-        internal_name=otp_row["new_name"],
-        internal_phone=otp_row["new_phone"]
-    )
-    mark_otp_used(otp_row["id"])
-
-    await m.answer(
-        "✅ <b>Đổi thông tin tài khoản nội bộ thành công</b>\n\n"
-        f"👤 Tên hiển thị mới: <b>{html.escape(otp_row['new_name'])}</b>\n"
-        f"📱 Số điện thoại nội bộ mới: <b>{html.escape(otp_row['new_phone'])}</b>"
-    )
-    await state.clear()
 
 
 @dp.message(Command("donhang"))

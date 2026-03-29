@@ -30,27 +30,20 @@ SUPPORT_USERNAME = "@tai_khoan_xin"
 BASE_DIR = Path(__file__).resolve().parent
 DB_NAME = str(BASE_DIR / "shop_bot.db")
 
-# Chỉ dùng để tạo dữ liệu ban đầu vào database
 DEFAULT_PRODUCTS = {
     "sp1": {"ten": "Adobe Creative Cloud 3 Tháng", "gia": 159000, "sl": 5, "nhom": "Adobe"},
-
     "sp2": {"ten": "Acc Shoppe Ngâm 5 Tháng Voucher 80k - 100k", "gia": 29000, "sl": 5, "nhom": "Shopee"},
     "sp3": {"ten": "Đặt Đơn Shopee Giảm 100k", "gia": 59000, "sl": 5, "nhom": "Shopee"},
-
     "sp4": {"ten": "Canva Edu 1 Năm", "gia": 149000, "sl": 5, "nhom": "Canva"},
     "sp5": {"ten": "Canva Pro 1 Năm", "gia": 289000, "sl": 5, "nhom": "Canva"},
-
     "sp6": {"ten": "CapCut Pro 14 Ngày_BHF", "gia": 25000, "sl": 7, "nhom": "CapCut"},
     "sp7": {"ten": "CapCut Pro 35d_BHF", "gia": 45000, "sl": 5, "nhom": "CapCut"},
     "sp8": {"ten": "CapCut Pro 1 Năm_BHF", "gia": 450000, "sl": 5, "nhom": "CapCut"},
-
-    "sp9": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000, "sl": 9, "nhom": "ChatGPT + Gemini"},
-    "sp10": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000, "sl": 2, "nhom": "ChatGPT + Gemini"},
-
+    "sp9": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000, "sl": 9, "nhom": "AI Tools"},
+    "sp10": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000, "sl": 2, "nhom": "AI Tools"},
     "sp11": {"ten": "Youtube Premium 1 Tháng", "gia": 55000, "sl": 5, "nhom": "Youtube"},
     "sp12": {"ten": "Youtube 3 Tháng", "gia": 159000, "sl": 5, "nhom": "Youtube"},
-
-    "sp13": {"ten": "Mã Highlands Coffee Nước Free", "gia": 15000, "sl": 5, "nhom": "Highlands Coffee Free"},
+    "sp13": {"ten": "Mã Highlands Coffee Nước Free", "gia": 15000, "sl": 5, "nhom": "Khác"},
 }
 
 CATEGORY_ORDER = [
@@ -58,9 +51,9 @@ CATEGORY_ORDER = [
     "Shopee",
     "Canva",
     "CapCut",
-    "ChatGPT + Gemini",
+    "AI Tools",
     "Youtube",
-    "Highlands Coffee Free",
+    "Khác",
 ]
 
 logging.basicConfig(level=logging.INFO)
@@ -80,12 +73,38 @@ class BuyFlow(StatesGroup):
 class AdminFlow(StatesGroup):
     nhap_noi_dung = State()
     update_so_luong = State()
+    them_ten = State()
+    them_gia = State()
+    them_so_luong = State()
+    them_nhom = State()
+    thong_bao = State()
 
 
 def db():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
+
+
+def save_user_info(user):
+    if not user:
+        return
+
+    conn = db()
+    cur = conn.cursor()
+    username = f"@{user.username}" if user.username else ""
+    full_name = user.full_name or ""
+
+    cur.execute("""
+        INSERT INTO users(user_id, full_name, username)
+        VALUES(?,?,?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            full_name=excluded.full_name,
+            username=excluded.username
+    """, (user.id, full_name, username))
+
+    conn.commit()
+    conn.close()
 
 
 def init_db():
@@ -106,6 +125,14 @@ def init_db():
         )
     """)
 
+    cur.execute("""
+        CREATE TABLE IF NOT EXISTS users(
+            user_id INTEGER PRIMARY KEY,
+            full_name TEXT,
+            username TEXT
+        )
+    """)
+
     cur.execute("PRAGMA table_info(orders)")
     cols = [row["name"] for row in cur.fetchall()]
 
@@ -122,7 +149,7 @@ def init_db():
             price INTEGER NOT NULL,
             stock INTEGER NOT NULL DEFAULT 0,
             active INTEGER NOT NULL DEFAULT 1,
-            category TEXT NOT NULL DEFAULT 'Highlands Coffee Free'
+            category TEXT NOT NULL DEFAULT 'Khác'
         )
     """)
 
@@ -130,7 +157,7 @@ def init_db():
     product_cols = [row["name"] for row in cur.fetchall()]
 
     if "category" not in product_cols:
-        cur.execute("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Highlands Coffee Free'")
+        cur.execute("ALTER TABLE products ADD COLUMN category TEXT NOT NULL DEFAULT 'Khác'")
 
     for code, info in DEFAULT_PRODUCTS.items():
         cur.execute("SELECT code FROM products WHERE code=?", (code,))
@@ -141,13 +168,13 @@ def init_db():
             cur.execute("""
                 INSERT INTO products(code, name, price, stock, active, category)
                 VALUES(?,?,?,?,?,?)
-            """, (code, info["ten"], info["gia"], info["sl"], active, info.get("nhom", "Highlands Coffee Free")))
+            """, (code, info["ten"], info["gia"], info["sl"], active, info.get("nhom", "Khác")))
         else:
             cur.execute("""
                 UPDATE products
                 SET name=?, price=?, category=?
                 WHERE code=?
-            """, (info["ten"], info["gia"], info.get("nhom", "Highlands Coffee Free"), code))
+            """, (info["ten"], info["gia"], info.get("nhom", "Khác"), code))
 
     conn.commit()
     conn.close()
@@ -171,15 +198,23 @@ def menu():
     )
 
 
-def get_categories():
-    return CATEGORY_ORDER
-
-
 def category_sort_key(cat_name: str):
     try:
         return CATEGORY_ORDER.index(cat_name)
     except ValueError:
         return 999
+
+
+def get_categories():
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT DISTINCT category FROM products")
+    rows = [r["category"] for r in cur.fetchall()]
+    conn.close()
+
+    known = [c for c in CATEGORY_ORDER if c in rows]
+    extra = sorted([c for c in rows if c not in CATEGORY_ORDER], key=lambda x: x.lower())
+    return known + extra
 
 
 def get_product_by_code(pid: str):
@@ -205,8 +240,26 @@ def get_all_products():
     rows = cur.fetchall()
     conn.close()
 
-    rows = sorted(rows, key=lambda p: (category_sort_key(p["category"]), p["name"].lower()))
+    rows = sorted(rows, key=lambda p: (category_sort_key(p["category"]), p["category"].lower(), p["name"].lower()))
     return rows
+
+
+def get_next_product_code():
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT code FROM products")
+    rows = cur.fetchall()
+    conn.close()
+
+    max_num = 0
+    for row in rows:
+        code = row["code"]
+        if code.startswith("sp"):
+            so = code[2:]
+            if so.isdigit():
+                max_num = max(max_num, int(so))
+
+    return f"sp{max_num + 1}"
 
 
 def category_menu():
@@ -260,6 +313,7 @@ def list_sp_by_category(category_name: str):
 
 @dp.message(Command("start"))
 async def start(m: Message):
+    save_user_info(m.from_user)
     text = (
         "Chào bạn 👋\n\n"
         "Các lệnh có thể dùng:\n"
@@ -274,11 +328,13 @@ async def start(m: Message):
 
 @dp.message(Command("menu"))
 async def menu_command(m: Message):
+    save_user_info(m.from_user)
     await m.answer("🛍 Chọn nhóm sản phẩm:", reply_markup=category_menu())
 
 
 @dp.message(Command("help"))
 async def help_command(m: Message):
+    save_user_info(m.from_user)
     text = (
         "<b>Hỗ trợ sử dụng bot</b>\n\n"
         "/start - Bắt đầu\n"
@@ -286,7 +342,9 @@ async def help_command(m: Message):
         "/help - Hỗ trợ\n"
         "/donhang - Xem đơn hàng đã mua\n"
         "/update - Cập nhật số lượng sản phẩm (chỉ admin)\n"
-        "/tonkho - Xem tồn kho nhanh (chỉ admin)\n\n"
+        "/tonkho - Xem tồn kho nhanh (chỉ admin)\n"
+        "/themsp - Thêm sản phẩm mới (chỉ admin)\n"
+        "/thongbao - Gửi thông báo tới tất cả user đã từng nhắn bot (chỉ admin)\n\n"
         f"Liên hệ hỗ trợ: {SUPPORT_USERNAME}"
     )
     await m.answer(text)
@@ -294,6 +352,7 @@ async def help_command(m: Message):
 
 @dp.message(Command("donhang"))
 async def donhang_command(m: Message):
+    save_user_info(m.from_user)
     conn = db()
     cur = conn.cursor()
     cur.execute("""
@@ -333,6 +392,8 @@ async def donhang_command(m: Message):
 
 @dp.message(Command("tonkho"))
 async def tonkho_command(m: Message):
+    save_user_info(m.from_user)
+
     if m.from_user.id != ADMIN_ID:
         await m.answer("Bạn không có quyền dùng lệnh này.")
         return
@@ -357,20 +418,228 @@ async def tonkho_command(m: Message):
     await m.answer(text)
 
 
+@dp.message(Command("themsp"))
+async def themsp_command(m: Message, state: FSMContext):
+    save_user_info(m.from_user)
+
+    if m.from_user.id != ADMIN_ID:
+        await m.answer("Bạn không có quyền dùng lệnh này.")
+        return
+
+    await state.set_state(AdminFlow.them_ten)
+    await m.answer(
+        "➕ <b>Thêm sản phẩm mới</b>\n\n"
+        "Nhập <b>tên sản phẩm</b>.\n"
+        "Muốn thoát thì nhập: <code>huy</code>"
+    )
+
+
+@dp.message(AdminFlow.them_ten)
+async def themsp_nhap_ten(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    text = m.text.strip() if m.text else ""
+    if not text:
+        await m.answer("Tên sản phẩm không được để trống.")
+        return
+
+    if text.lower() == "huy":
+        await state.clear()
+        await m.answer("Đã huỷ thêm sản phẩm.")
+        return
+
+    await state.update_data(ten=text)
+    await state.set_state(AdminFlow.them_gia)
+    await m.answer("Nhập <b>giá sản phẩm</b> bằng số.\nVí dụ: <code>15000</code>")
+
+
+@dp.message(AdminFlow.them_gia)
+async def themsp_nhap_gia(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    text = m.text.strip() if m.text else ""
+
+    if text.lower() == "huy":
+        await state.clear()
+        await m.answer("Đã huỷ thêm sản phẩm.")
+        return
+
+    if not text.isdigit():
+        await m.answer("Giá phải là số. Ví dụ: <code>15000</code>")
+        return
+
+    gia = int(text)
+    if gia <= 0:
+        await m.answer("Giá phải lớn hơn 0.")
+        return
+
+    await state.update_data(gia=gia)
+    await state.set_state(AdminFlow.them_so_luong)
+    await m.answer("Nhập <b>số lượng</b> ban đầu.\nVí dụ: <code>5</code>")
+
+
+@dp.message(AdminFlow.them_so_luong)
+async def themsp_nhap_so_luong(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    text = m.text.strip() if m.text else ""
+
+    if text.lower() == "huy":
+        await state.clear()
+        await m.answer("Đã huỷ thêm sản phẩm.")
+        return
+
+    if not text.isdigit():
+        await m.answer("Số lượng phải là số. Ví dụ: <code>5</code>")
+        return
+
+    sl = int(text)
+    if sl < 0:
+        await m.answer("Số lượng không hợp lệ.")
+        return
+
+    await state.update_data(sl=sl)
+    await state.set_state(AdminFlow.them_nhom)
+
+    ds_nhom = "\n".join([f"- {html.escape(cat)}" for cat in get_categories()])
+    await m.answer(
+        "Nhập <b>nhóm sản phẩm</b>.\n"
+        "Bạn có thể nhập nhóm cũ hoặc nhóm mới.\n\n"
+        f"<b>Các nhóm hiện có:</b>\n{ds_nhom}\n\n"
+        "Ví dụ: <code>CapCut</code>"
+    )
+
+
+@dp.message(AdminFlow.them_nhom)
+async def themsp_nhap_nhom(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    nhom = m.text.strip() if m.text else ""
+
+    if not nhom:
+        await m.answer("Nhóm sản phẩm không được để trống.")
+        return
+
+    if nhom.lower() == "huy":
+        await state.clear()
+        await m.answer("Đã huỷ thêm sản phẩm.")
+        return
+
+    data = await state.get_data()
+    ten = data.get("ten")
+    gia = data.get("gia")
+    sl = data.get("sl")
+
+    if ten is None or gia is None or sl is None:
+        await state.clear()
+        await m.answer("Thiếu dữ liệu. Hãy dùng /themsp lại từ đầu.")
+        return
+
+    code = get_next_product_code()
+    active = 1 if sl > 0 else 0
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("""
+        INSERT INTO products(code, name, price, stock, active, category)
+        VALUES(?,?,?,?,?,?)
+    """, (code, ten, gia, sl, active, nhom))
+    conn.commit()
+    conn.close()
+
+    await m.answer(
+        f"✅ <b>Đã thêm sản phẩm mới</b>\n\n"
+        f"🆔 Mã: <b>{html.escape(code)}</b>\n"
+        f"📦 Tên: <b>{html.escape(ten)}</b>\n"
+        f"📂 Nhóm: <b>{html.escape(nhom)}</b>\n"
+        f"💰 Giá: <b>{gia:,}đ</b>\n"
+        f"📦 Số lượng: <b>{sl}</b>"
+    )
+    await state.clear()
+
+
+@dp.message(Command("thongbao"))
+async def thongbao_command(m: Message, state: FSMContext):
+    save_user_info(m.from_user)
+
+    if m.from_user.id != ADMIN_ID:
+        await m.answer("Bạn không có quyền dùng lệnh này.")
+        return
+
+    await state.set_state(AdminFlow.thong_bao)
+    await m.answer(
+        "📢 <b>Gửi thông báo hàng loạt</b>\n\n"
+        "Hãy nhập nội dung thông báo muốn gửi tới tất cả user đã từng nhắn bot.\n"
+        "Muốn thoát thì nhập: <code>huy</code>"
+    )
+
+
+@dp.message(AdminFlow.thong_bao)
+async def thongbao_send(m: Message, state: FSMContext):
+    if m.from_user.id != ADMIN_ID:
+        return
+
+    text = m.text if m.text else ""
+
+    if text.strip().lower() == "huy":
+        await state.clear()
+        await m.answer("Đã huỷ gửi thông báo.")
+        return
+
+    if not text.strip():
+        await m.answer("Nội dung thông báo không được để trống.")
+        return
+
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT user_id FROM users")
+    users = cur.fetchall()
+    conn.close()
+
+    sent = 0
+    fail = 0
+
+    for row in users:
+        uid = row["user_id"]
+        try:
+            await bot.send_message(
+                uid,
+                f"📢 <b>THÔNG BÁO TỪ SHOP</b>\n\n{text}\n\n"
+                f"Nếu cần hỗ trợ, nhắn {SUPPORT_USERNAME}"
+            )
+            sent += 1
+        except Exception:
+            fail += 1
+
+    await m.answer(
+        f"✅ Đã gửi thông báo xong.\n"
+        f"📨 Gửi thành công: <b>{sent}</b>\n"
+        f"❌ Gửi lỗi: <b>{fail}</b>"
+    )
+    await state.clear()
+
+
 @dp.callback_query(F.data == "menu")
 async def back(c: CallbackQuery):
+    save_user_info(c.from_user)
     await c.message.edit_text("🏠 Menu chính:", reply_markup=menu())
     await c.answer()
 
 
 @dp.callback_query(F.data == "sp")
 async def sp(c: CallbackQuery):
+    save_user_info(c.from_user)
     await c.message.edit_text("🛍 Chọn nhóm sản phẩm:", reply_markup=category_menu())
     await c.answer()
 
 
 @dp.callback_query(F.data == "contact")
 async def contact(c: CallbackQuery):
+    save_user_info(c.from_user)
     await c.message.edit_text(
         f"☎️ Hỗ trợ: {SUPPORT_USERNAME}",
         reply_markup=menu()
@@ -380,11 +649,13 @@ async def contact(c: CallbackQuery):
 
 @dp.callback_query(F.data == "none")
 async def none_callback(c: CallbackQuery):
+    save_user_info(c.from_user)
     await c.answer()
 
 
 @dp.callback_query(F.data.startswith("cat_"))
 async def show_category(c: CallbackQuery):
+    save_user_info(c.from_user)
     category_name = c.data.split("_", 1)[1]
     await c.message.edit_text(
         f"🛍 Nhóm sản phẩm: <b>{html.escape(category_name)}</b>",
@@ -395,6 +666,8 @@ async def show_category(c: CallbackQuery):
 
 @dp.callback_query(F.data.startswith("buy_"))
 async def buy(c: CallbackQuery, state: FSMContext):
+    save_user_info(c.from_user)
+
     if c.from_user.id == ADMIN_ID:
         await c.answer(
             "Admin không thể mua hàng bằng bot này. Hãy dùng tài khoản Telegram khác để test như khách.",
@@ -428,6 +701,8 @@ async def buy(c: CallbackQuery, state: FSMContext):
 
 @dp.message(BuyFlow.cho_so_luong)
 async def chon_so_luong(m: Message, state: FSMContext):
+    save_user_info(m.from_user)
+
     if m.from_user.id == ADMIN_ID:
         await m.answer("Admin không thể mua hàng bằng bot này. Hãy dùng tài khoản Telegram khác để test như khách.")
         await state.clear()
@@ -508,6 +783,8 @@ async def chon_so_luong(m: Message, state: FSMContext):
 
 @dp.message(BuyFlow.cho_bill, F.photo)
 async def bill(m: Message, state: FSMContext):
+    save_user_info(m.from_user)
+
     if m.from_user.id == ADMIN_ID:
         await m.answer("Admin không thể gửi bill như khách hàng. Hãy dùng tài khoản Telegram khác để test.")
         await state.clear()
@@ -581,11 +858,13 @@ async def bill(m: Message, state: FSMContext):
 
 @dp.message(BuyFlow.cho_bill)
 async def nhac_gui_bill(m: Message):
+    save_user_info(m.from_user)
     await m.answer("Vui lòng gửi <b>ảnh bill</b> để xác nhận thanh toán.")
 
 
 @dp.callback_query(F.data.startswith("ok_"))
 async def ok(c: CallbackQuery):
+    save_user_info(c.from_user)
     oid = int(c.data.split("_")[1])
 
     conn = db()
@@ -701,6 +980,8 @@ async def ok(c: CallbackQuery):
 
 @dp.message(Command("gui"))
 async def chon_don_gui(m: Message, state: FSMContext):
+    save_user_info(m.from_user)
+
     if m.from_user.id != ADMIN_ID:
         await m.answer("Bạn không có quyền dùng lệnh này.")
         return
@@ -817,6 +1098,7 @@ async def deliver(m: Message, state: FSMContext):
 
 @dp.callback_query(F.data.startswith("no_"))
 async def no(c: CallbackQuery):
+    save_user_info(c.from_user)
     oid = int(c.data.split("_")[1])
 
     conn = db()
@@ -856,6 +1138,8 @@ async def no(c: CallbackQuery):
 
 @dp.message(Command("update"))
 async def update_stock_menu(m: Message, state: FSMContext):
+    save_user_info(m.from_user)
+
     if m.from_user.id != ADMIN_ID:
         await m.answer("Bạn không có quyền dùng lệnh này.")
         return

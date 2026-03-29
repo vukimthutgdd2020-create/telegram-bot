@@ -17,6 +17,7 @@ from aiogram.types import (
     InlineKeyboardMarkup,
     Message,
 )
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
 
 BOT_TOKEN = "8649986734:AAEPEY3qI8OHOzAz7PUKnxDUmoNHxkXwBNc"
 ADMIN_ID = 7078570432
@@ -98,13 +99,22 @@ def save_user_info(user):
     full_name = user.full_name or ""
 
     cur.execute("""
-        INSERT INTO users(user_id, full_name, username)
-        VALUES(?,?,?)
+        INSERT INTO users(user_id, full_name, username, is_active)
+        VALUES(?,?,?,1)
         ON CONFLICT(user_id) DO UPDATE SET
             full_name=excluded.full_name,
-            username=excluded.username
+            username=excluded.username,
+            is_active=1
     """, (user.id, full_name, username))
 
+    conn.commit()
+    conn.close()
+
+
+def deactivate_user(user_id: int):
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("UPDATE users SET is_active=0 WHERE user_id=?", (user_id,))
     conn.commit()
     conn.close()
 
@@ -131,9 +141,15 @@ def init_db():
         CREATE TABLE IF NOT EXISTS users(
             user_id INTEGER PRIMARY KEY,
             full_name TEXT,
-            username TEXT
+            username TEXT,
+            is_active INTEGER NOT NULL DEFAULT 1
         )
     """)
+
+    cur.execute("PRAGMA table_info(users)")
+    user_cols = [row["name"] for row in cur.fetchall()]
+    if "is_active" not in user_cols:
+        cur.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
 
     cur.execute("PRAGMA table_info(orders)")
     cols = [row["name"] for row in cur.fetchall()]
@@ -316,6 +332,36 @@ def list_sp_by_category(category_name: str):
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+async def safe_broadcast_to_user(uid: int, text: str):
+    try:
+        await bot.send_message(uid, text)
+        return True, ""
+    except TelegramRetryAfter as e:
+        wait_time = max(int(e.retry_after), 1)
+        logging.warning(f"Rate limit khi gửi tới {uid}, chờ {wait_time}s rồi thử lại")
+        await asyncio.sleep(wait_time)
+        try:
+            await bot.send_message(uid, text)
+            return True, ""
+        except Exception as e2:
+            logging.exception(f"Lỗi sau khi retry tới {uid}: {e2}")
+            return False, f"retry_fail: {str(e2)}"
+    except TelegramForbiddenError as e:
+        logging.warning(f"User {uid} đã chặn bot hoặc bot không được phép nhắn: {e}")
+        deactivate_user(uid)
+        return False, "blocked_or_forbidden"
+    except TelegramBadRequest as e:
+        err = str(e).lower()
+        logging.warning(f"BadRequest tới {uid}: {e}")
+        if "chat not found" in err or "user not found" in err:
+            deactivate_user(uid)
+            return False, "chat_not_found"
+        return False, f"bad_request: {str(e)}"
+    except Exception as e:
+        logging.exception(f"Lỗi không xác định khi gửi tới {uid}: {e}")
+        return False, f"other_error: {str(e)}"
+
+
 @dp.message(Command("start"))
 async def start(m: Message):
     save_user_info(m.from_user)
@@ -437,7 +483,7 @@ async def users_command(m: Message):
     conn = db()
     cur = conn.cursor()
     cur.execute("""
-        SELECT user_id, full_name, username
+        SELECT user_id, full_name, username, is_active
         FROM users
         ORDER BY user_id DESC
     """)
@@ -454,11 +500,13 @@ async def users_command(m: Message):
         full_name = html.escape(row["full_name"] or "Không có tên")
         username = html.escape(row["username"] or "Không có username")
         user_id = row["user_id"]
+        status_text = "Hoạt động" if row["is_active"] == 1 else "Không nhận được tin"
 
         block = (
             f"{i}. 👤 <b>{full_name}</b>\n"
             f"🔗 Username: <b>{username}</b>\n"
-            f"🆔 ID: <code>{user_id}</code>\n\n"
+            f"🆔 ID: <code>{user_id}</code>\n"
+            f"📌 Trạng thái: <b>{status_text}</b>\n\n"
         )
 
         if len(text) + len(block) > 3800:
@@ -728,30 +776,69 @@ async def thongbao_send(m: Message, state: FSMContext):
 
     conn = db()
     cur = conn.cursor()
-    cur.execute("SELECT user_id FROM users")
+    cur.execute("""
+        SELECT user_id, full_name, username
+        FROM users
+        WHERE is_active=1
+        ORDER BY user_id ASC
+    """)
     users = cur.fetchall()
     conn.close()
 
+    if not users:
+        await m.answer("Không có user nào khả dụng để gửi thông báo.")
+        await state.clear()
+        return
+
     sent = 0
     fail = 0
+    fail_list = []
+
+    notify_text = (
+        f"📢 <b>THÔNG BÁO TỪ SHOP</b>\n\n"
+        f"{text}\n\n"
+        f"Nếu cần hỗ trợ, nhắn {SUPPORT_USERNAME}"
+    )
+
+    await m.answer(f"⏳ Bắt đầu gửi thông báo tới <b>{len(users)}</b> user...")
 
     for row in users:
         uid = row["user_id"]
-        try:
-            await bot.send_message(
-                uid,
-                f"📢 <b>THÔNG BÁO TỪ SHOP</b>\n\n{text}\n\n"
-                f"Nếu cần hỗ trợ, nhắn {SUPPORT_USERNAME}"
-            )
-            sent += 1
-        except Exception:
-            fail += 1
+        ok, reason = await safe_broadcast_to_user(uid, notify_text)
 
-    await m.answer(
+        if ok:
+            sent += 1
+        else:
+            fail += 1
+            fail_list.append(
+                f"ID {uid} | "
+                f"{row['full_name'] or 'Khong co ten'} | "
+                f"{row['username'] or 'Khong co username'} | "
+                f"{reason}"
+            )
+
+        await asyncio.sleep(0.05)
+
+    result = (
         f"✅ Đã gửi thông báo xong.\n"
         f"📨 Gửi thành công: <b>{sent}</b>\n"
         f"❌ Gửi lỗi: <b>{fail}</b>"
     )
+
+    await m.answer(result)
+
+    if fail_list:
+        chunk = "<b>Danh sách user gửi lỗi:</b>\n\n"
+        for i, item in enumerate(fail_list, start=1):
+            line = f"{i}. {html.escape(item)}\n"
+            if len(chunk) + len(line) > 3800:
+                await m.answer(chunk)
+                chunk = ""
+            chunk += line
+
+        if chunk:
+            await m.answer(chunk)
+
     await state.clear()
 
 

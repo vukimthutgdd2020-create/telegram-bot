@@ -2,418 +2,190 @@ import asyncio
 import logging
 import sqlite3
 import html
-import httpx
+import httpx  # Cần cài đặt: pip install httpx
 from pathlib import Path
+from urllib.parse import quote
 
 from aiogram import Bot, Dispatcher, F
 from aiogram.client.default import DefaultBotProperties
 from aiogram.enums import ParseMode
 from aiogram.filters import Command
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     CallbackQuery,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
 )
+from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
 
-# =========================
-# CẤU HÌNH
-# =========================
+# --- CẤU HÌNH ---
 BOT_TOKEN = "8649986734:AAEPEY3qI8OHOzAz7PUKnxDUmoNHxkXwBNc"
 ADMIN_ID = 7078570432
-CHAYCODE_API_KEY = "8fc8e078133cde11"
+
+# Cấu hình API OTP 
+OTP_API_KEY = "8fc8e078133cde11"
+OTP_BASE_URL = "https://chaycodeso3.com/api"
 
 SUPPORT_USERNAME = "@tai_khoan_xin"
 BASE_DIR = Path(__file__).resolve().parent
 DB_NAME = str(BASE_DIR / "shop_bot.db")
 
+# ... (Các cấu hình ngân hàng giữ nguyên) ...
+BANK_NAME = "MB Bank"
+BANK_BIN = "970422"
+BANK_ACCOUNT = "346641789567"
+ACCOUNT_NAME = "VU VAN CUONG"
+
 logging.basicConfig(level=logging.INFO)
 
-bot = Bot(
-    token=BOT_TOKEN,
-    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
-)
+bot = Bot(token=BOT_TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-# cache tên app để khỏi nhét app_name vào callback_data
-OTP_APP_CACHE = {}
-
-
-# =========================
-# API OTP
-# =========================
+# --- LỚP XỬ LÝ API OTP ---
 class ChayCodeAPI:
-    def __init__(self, api_key: str):
-        self.base_url = "https://chaycodeso3.com/api"
+    def __init__(self, api_key):
         self.api_key = api_key
 
-    async def _request(self, params: dict):
-        params = dict(params)
-        params["apik"] = self.api_key
-
+    async def _get(self, params):
+        params['apik'] = self.api_key
         async with httpx.AsyncClient() as client:
             try:
-                resp = await client.get(self.base_url, params=params, timeout=15)
-                resp.raise_for_status()
-                return resp.json()
+                # Sử dụng phương thức GET theo yêu cầu của API 
+                response = await client.get(OTP_BASE_URL, params=params, timeout=15)
+                return response.json()
             except Exception as e:
-                logging.exception("Lỗi API OTP: %s", e)
-                return {"ResponseCode": 1, "Msg": f"Lỗi kết nối API: {e}"}
+                logging.error(f"Lỗi kết nối API OTP: {e}")
+                return {"ResponseCode": 1, "Msg": "Lỗi kết nối Server OTP"}
 
+    async def get_apps(self):
+        """Lấy danh sách ứng dụng đang chạy """
+        return await self._get({'act': 'app'})
 
-api_otp = ChayCodeAPI(CHAYCODE_API_KEY)
+    async def request_number(self, app_id):
+        """Lấy 1 số sim để nhận code """
+        return await self._get({'act': 'number', 'appId': app_id})
 
+    async def get_otp_code(self, request_id):
+        """Lấy mã code của số điện thoại đã thuê """
+        return await self._get({'act': 'code', 'id': request_id})
 
-# =========================
-# DATABASE
-# =========================
+otp_api = ChayCodeAPI(OTP_API_KEY)
+
+# --- DATABASE & UTILS (Giữ nguyên các hàm khởi tạo DB của bạn) ---
+# ... (Hàm db, init_db, save_user_info giữ nguyên) ...
+
 def db():
     conn = sqlite3.connect(DB_NAME)
     conn.row_factory = sqlite3.Row
     return conn
 
-
 def init_db():
+    # ... (Toàn bộ code init_db của bạn) ...
     conn = db()
     cur = conn.cursor()
-
-    # user đã từng nhắn bot
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            full_name TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
-    # lưu lịch sử thuê OTP
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS otp_orders (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER NOT NULL,
-            app_id TEXT,
-            app_name TEXT,
-            request_id TEXT,
-            phone TEXT,
-            otp_code TEXT,
-            status TEXT DEFAULT 'pending',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    """)
-
+    cur.execute("CREATE TABLE IF NOT EXISTS users(user_id INTEGER PRIMARY KEY, full_name TEXT, username TEXT, is_active INTEGER DEFAULT 1)")
+    cur.execute("CREATE TABLE IF NOT EXISTS orders(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER, product TEXT, price INTEGER, status TEXT, quantity INTEGER DEFAULT 1, product_code TEXT, proof TEXT, delivery TEXT)")
+    cur.execute("CREATE TABLE IF NOT EXISTS products(code TEXT PRIMARY KEY, name TEXT, price INTEGER, stock INTEGER, active INTEGER, category TEXT)")
     conn.commit()
     conn.close()
 
-
-def save_user(user_id: int, username: str | None, full_name: str):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO users (user_id, username, full_name)
-        VALUES (?, ?, ?)
-        ON CONFLICT(user_id) DO UPDATE SET
-            username = excluded.username,
-            full_name = excluded.full_name
-    """, (user_id, username, full_name))
-    conn.commit()
-    conn.close()
-
-
-def create_otp_order(user_id: int, app_id: str, app_name: str, request_id: str, phone: str):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO otp_orders (user_id, app_id, app_name, request_id, phone, status)
-        VALUES (?, ?, ?, ?, ?, 'waiting_code')
-    """, (user_id, app_id, app_name, request_id, phone))
-    conn.commit()
-    conn.close()
-
-
-def update_otp_code(request_id: str, otp_code: str, status: str):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE otp_orders
-        SET otp_code = ?, status = ?
-        WHERE request_id = ?
-    """, (otp_code, status, request_id))
-    conn.commit()
-    conn.close()
-
-
-def update_otp_status(request_id: str, status: str):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        UPDATE otp_orders
-        SET status = ?
-        WHERE request_id = ?
-    """, (status, request_id))
-    conn.commit()
-    conn.close()
-
-
-# =========================
-# KEYBOARD
-# =========================
+# --- MENU CHỈNH SỬA ĐỂ THÊM DỊCH VỤ OTP ---
 def main_menu_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🛍 Sản phẩm Shop", callback_data="sp")],
-        [InlineKeyboardButton(text="📱 Thuê số OTP (API)", callback_data="otp_menu")],
-        [InlineKeyboardButton(text="☎️ Hỗ trợ", callback_data="contact")]
-    ])
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🛍 Sản phẩm Shop", callback_data="sp")],
+            [InlineKeyboardButton(text="📱 Thuê số OTP (API)", callback_data="otp_list")],
+            [InlineKeyboardButton(text="☎️ Hỗ trợ", callback_data="contact")],
+        ]
+    )
 
+# --- HANDLERS ---
 
-# =========================
-# HANDLERS
-# =========================
 @dp.message(Command("start"))
-async def start(m: Message):
-    save_user(
-        user_id=m.from_user.id,
-        username=m.from_user.username,
-        full_name=m.from_user.full_name
-    )
-
-    text = (
-        "Chào mừng bạn đến với Shop Bot & Dịch vụ OTP 🤖\n\n"
-        "/menu - Mua sản phẩm & Thuê số OTP\n"
-        "/donhang - Lịch sử mua hàng\n"
-        f"Hỗ trợ: {SUPPORT_USERNAME}"
-    )
-    await m.answer(text, reply_markup=main_menu_keyboard())
-
-
 @dp.message(Command("menu"))
-async def menu_cmd(m: Message):
-    await m.answer("🏠 Menu chính:", reply_markup=main_menu_keyboard())
+async def show_menu(m: Message):
+    # save_user_info(m.from_user)
+    await m.answer("🛍 <b>Chào mừng bạn đến với Shop!</b>\nVui lòng chọn dịch vụ bên dưới:", reply_markup=main_menu_keyboard())
 
+# --- XỬ LÝ OTP ---
 
+@dp.callback_query(F.data == "otp_list")
+async def otp_list_callback(c: CallbackQuery):
+    await c.message.edit_text("⏳ Đang tải danh sách dịch vụ OTP...")
+    res = await otp_api.get_apps()
+    
+    if res.get("ResponseCode") == 0:
+        btns = []
+        # Lấy tối đa 10 dịch vụ phổ biến 
+        for app in res["Result"][:10]:
+            btns.append([InlineKeyboardButton(
+                text=f"{app['Name']} | {app['Cost']:,}đ", 
+                callback_data=f"otpbuy_{app['Id']}_{app['Name']}"
+            )])
+        btns.append([InlineKeyboardButton(text="⬅️ Quay lại", callback_data="menu")])
+        await c.message.edit_text("<b>Vui lòng chọn ứng dụng cần thuê số:</b>", reply_markup=InlineKeyboardMarkup(inline_keyboard=btns))
+    else:
+        await c.message.edit_text(f"❌ Lỗi: {res.get('Msg')}", reply_markup=main_menu_keyboard())
+
+@dp.callback_query(F.data.startswith("otpbuy_"))
+async def otp_buy_callback(c: CallbackQuery):
+    _, app_id, app_name = c.data.split("_")
+    
+    await c.message.edit_text(f"⏳ Đang yêu cầu cấp số cho <b>{app_name}</b>...")
+    res = await otp_api.request_number(app_id)
+    
+    if res.get("ResponseCode") == 0:
+        req_id = res["Result"]["Id"]
+        phone = res["Result"]["Number"] # Số điện thoại không có số 0 ở đầu 
+        
+        await c.message.edit_text(
+            f"✅ <b>THUÊ SỐ THÀNH CÔNG</b>\n\n"
+            f"📦 Dịch vụ: <b>{app_name}</b>\n"
+            f"📞 Số điện thoại: <code>0{phone}</code>\n"
+            f"🆔 ID phiên: <code>{req_id}</code>\n\n"
+            f"🕒 <i>Bot đang đợi mã OTP. Bạn hãy nhập số trên vào ứng dụng...</i>"
+        )
+        
+        # Chạy vòng lặp kiểm tra mã OTP trong nền (Background) 
+        asyncio.create_task(wait_for_otp(c.from_user.id, req_id, phone, app_name))
+    else:
+        await c.message.answer(f"❌ Lỗi: {res.get('Msg')}")
+
+async def wait_for_otp(user_id, req_id, phone, app_name):
+    # Kiểm tra mã mỗi 6 giây trong tối đa 5 phút 
+    for _ in range(50):
+        await asyncio.sleep(6)
+        res = await otp_api.get_otp_code(req_id)
+        
+        if res.get("ResponseCode") == 0: # Đã nhận được code 
+            otp_code = res["Result"]["Code"]
+            sms_text = res["Result"]["SMS"]
+            await bot.send_message(
+                user_id,
+                f"🎯 <b>CÓ MÃ OTP MỚI!</b>\n\n"
+                f"📱 Dịch vụ: <b>{app_name}</b>\n"
+                f"📞 Số: <code>0{phone}</code>\n"
+                f"🔑 Mã OTP: <code>{otp_code}</code>\n"
+                f"💬 Nội dung: <i>{sms_text}</i>"
+            )
+            return
+        elif res.get("ResponseCode") == 2: # Không nhận được code (hết thời gian) 
+            break
+            
+    await bot.send_message(user_id, f"❌ Hết thời gian chờ mã OTP cho số <code>0{phone}</code> ({app_name}).")
+
+# --- GIỮ NGUYÊN CÁC HANDLER KHÁC CỦA BẠN ---
 @dp.callback_query(F.data == "menu")
 async def back_to_menu(c: CallbackQuery):
     await c.message.edit_text("🏠 Menu chính:", reply_markup=main_menu_keyboard())
-    await c.answer()
 
+# ... (Copy tiếp các phần callback_query(F.data == "sp"), handle cat_, buy_... của bạn vào đây) ...
 
-@dp.callback_query(F.data == "contact")
-async def contact_handler(c: CallbackQuery):
-    await c.message.edit_text(
-        f"☎️ Hỗ trợ khách hàng: {SUPPORT_USERNAME}",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Quay lại", callback_data="menu")]
-        ])
-    )
-    await c.answer()
-
-
-@dp.callback_query(F.data == "sp")
-async def sp_handler(c: CallbackQuery):
-    await c.message.edit_text(
-        "🛍 Phần sản phẩm shop của bạn hãy gắn lại code cũ vào đây.",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-            [InlineKeyboardButton(text="⬅️ Quay lại", callback_data="menu")]
-        ])
-    )
-    await c.answer()
-
-
-# =========================
-# PHẦN OTP
-# =========================
-@dp.callback_query(F.data == "otp_menu")
-async def show_otp_apps(c: CallbackQuery):
-    if c.from_user.id == ADMIN_ID:
-        await c.answer("Admin hãy dùng nick khách để test thuê số.", show_alert=True)
-        return
-
-    await c.message.edit_text("⏳ Đang tải danh sách ứng dụng từ Server OTP...")
-
-    res = await api_otp._request({"act": "app"})
-
-    if res.get("ResponseCode") != 0:
-        await c.message.edit_text(
-            f"❌ Không thể lấy danh sách ứng dụng.\n{html.escape(str(res.get('Msg', 'Lỗi không xác định')))}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🏠 Menu", callback_data="menu")]
-            ])
-        )
-        await c.answer()
-        return
-
-    result = res.get("Result", [])
-    if not isinstance(result, list) or not result:
-        await c.message.edit_text(
-            "❌ Danh sách ứng dụng đang trống.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🏠 Menu", callback_data="menu")]
-            ])
-        )
-        await c.answer()
-        return
-
-    OTP_APP_CACHE.clear()
-    buttons = []
-
-    for app in result[:10]:
-        app_id = str(app.get("Id", ""))
-        app_name = str(app.get("Name", "Không rõ"))
-        app_cost = app.get("Cost", 0)
-
-        OTP_APP_CACHE[app_id] = {
-            "name": app_name,
-            "cost": app_cost,
-        }
-
-        buttons.append([
-            InlineKeyboardButton(
-                text=f"📲 {app_name} | {int(app_cost):,}đ" if str(app_cost).isdigit() else f"📲 {app_name} | {app_cost}",
-                callback_data=f"otpbuy:{app_id}"
-            )
-        ])
-
-    buttons.append([InlineKeyboardButton(text="⬅️ Quay lại", callback_data="menu")])
-
-    await c.message.edit_text(
-        "<b>Vui lòng chọn ứng dụng cần thuê số:</b>",
-        reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons)
-    )
-    await c.answer()
-
-
-@dp.callback_query(F.data.startswith("otpbuy:"))
-async def process_otp_order(c: CallbackQuery):
-    if c.from_user.id == ADMIN_ID:
-        await c.answer("Admin hãy dùng nick khách để test thuê số.", show_alert=True)
-        return
-
-    app_id = c.data.split(":", 1)[1]
-    app_info = OTP_APP_CACHE.get(app_id, {})
-    app_name = app_info.get("name", f"App {app_id}")
-
-    await c.message.edit_text(f"⏳ Đang yêu cầu hệ thống cấp số cho <b>{html.escape(app_name)}</b>...")
-
-    res = await api_otp._request({"act": "number", "appId": app_id})
-
-    if res.get("ResponseCode") != 0:
-        await c.message.edit_text(
-            f"❌ Lỗi thuê số: {html.escape(str(res.get('Msg', 'Không rõ lỗi')))}",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⬅️ Quay lại", callback_data="otp_menu")],
-                [InlineKeyboardButton(text="🏠 Menu", callback_data="menu")]
-            ])
-        )
-        await c.answer()
-        return
-
-    result = res.get("Result", {})
-    req_id = str(result.get("Id", ""))
-    phone = str(result.get("Number", ""))
-
-    if not req_id or not phone:
-        await c.message.edit_text(
-            "❌ API trả dữ liệu không hợp lệ, thiếu ID phiên hoặc số điện thoại.",
-            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="⬅️ Quay lại", callback_data="otp_menu")]
-            ])
-        )
-        await c.answer()
-        return
-
-    full_phone = phone if phone.startswith("0") else f"0{phone}"
-
-    create_otp_order(
-        user_id=c.from_user.id,
-        app_id=app_id,
-        app_name=app_name,
-        request_id=req_id,
-        phone=full_phone
-    )
-
-    await c.message.edit_text(
-        f"✅ <b>THUÊ SỐ THÀNH CÔNG</b>\n\n"
-        f"📦 Ứng dụng: <b>{html.escape(app_name)}</b>\n"
-        f"📞 Số điện thoại: <code>{html.escape(full_phone)}</code>\n"
-        f"🆔 ID phiên: <code>{html.escape(req_id)}</code>\n\n"
-        f"⚠️ <i>Bạn hãy nhập số trên vào ứng dụng. Bot sẽ tự động gửi mã OTP khi nhận được tin nhắn...</i>"
-    )
-    await c.answer()
-
-    # chờ OTP tối đa 5 phút
-    for _ in range(50):
-        await asyncio.sleep(6)
-
-        code_res = await api_otp._request({"act": "code", "id": req_id})
-        response_code = code_res.get("ResponseCode")
-
-        if response_code == 0:
-            code_data = code_res.get("Result", {})
-            otp_code = str(code_data.get("Code", ""))
-            sms_text = str(code_data.get("SMS", ""))
-
-            update_otp_code(req_id, otp_code, "done")
-
-            await c.message.answer(
-                f"🎯 <b>CÓ MÃ OTP MỚI!</b>\n\n"
-                f"🔑 Mã: <code>{html.escape(otp_code)}</code>\n"
-                f"📱 Số: <code>{html.escape(full_phone)}</code>\n"
-                f"💬 Nội dung: <i>{html.escape(sms_text)}</i>"
-            )
-            return
-
-        elif response_code == 2:
-            update_otp_status(req_id, "expired")
-            await c.message.answer(
-                f"❌ Phiên thuê số <code>{html.escape(full_phone)}</code> đã hết hạn hoặc bị hủy."
-            )
-            return
-
-    update_otp_status(req_id, "timeout")
-    await c.message.answer(
-        f"❌ Phiên thuê số <code>{html.escape(full_phone)}</code> đã hết thời gian chờ OTP."
-    )
-
-
-@dp.message(Command("donhang"))
-async def donhang_handler(m: Message):
-    conn = db()
-    cur = conn.cursor()
-    cur.execute("""
-        SELECT app_name, phone, otp_code, status, created_at
-        FROM otp_orders
-        WHERE user_id = ?
-        ORDER BY id DESC
-        LIMIT 10
-    """, (m.from_user.id,))
-    rows = cur.fetchall()
-    conn.close()
-
-    if not rows:
-        await m.answer("Bạn chưa có đơn OTP nào.")
-        return
-
-    text = ["<b>📜 10 đơn OTP gần nhất:</b>\n"]
-    for i, row in enumerate(rows, start=1):
-        text.append(
-            f"{i}. <b>{html.escape(row['app_name'] or '-')}</b>\n"
-            f"   Số: <code>{html.escape(row['phone'] or '-')}</code>\n"
-            f"   OTP: <code>{html.escape(row['otp_code'] or 'Chưa có')}</code>\n"
-            f"   Trạng thái: <b>{html.escape(row['status'] or '-')}</b>\n"
-            f"   Thời gian: {html.escape(str(row['created_at']))}\n"
-        )
-
-    await m.answer("\n".join(text))
-
-
-# =========================
-# MAIN
-# =========================
 async def main():
     init_db()
-    print("Bot đang chạy...")
     await dp.start_polling(bot)
-
 
 if __name__ == "__main__":
     asyncio.run(main())

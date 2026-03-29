@@ -39,11 +39,11 @@ DEFAULT_PRODUCTS = {
     "sp6": {"ten": "CapCut Pro 14 Ngày_BHF", "gia": 25000, "sl": 7, "nhom": "CapCut"},
     "sp7": {"ten": "CapCut Pro 35d_BHF", "gia": 45000, "sl": 5, "nhom": "CapCut"},
     "sp8": {"ten": "CapCut Pro 1 Năm_BHF", "gia": 450000, "sl": 5, "nhom": "CapCut"},
-    "sp9": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000, "sl": 9, "nhom": "AI Tools"},
-    "sp10": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000, "sl": 2, "nhom": "AI Tools"},
+    "sp9": {"ten": "ChatGPT Plus 1 Tháng", "gia": 99000, "sl": 9, "nhom": "ChatGPT + Gemini"},
+    "sp10": {"ten": "Gemini 2TB AI PRO 12 tháng", "gia": 199000, "sl": 2, "nhom": "ChatGPT + Gemini"},
     "sp11": {"ten": "Youtube Premium 1 Tháng", "gia": 55000, "sl": 5, "nhom": "Youtube"},
     "sp12": {"ten": "Youtube 3 Tháng", "gia": 159000, "sl": 5, "nhom": "Youtube"},
-    "sp13": {"ten": "Mã Highlands Coffee Nước Free", "gia": 15000, "sl": 5, "nhom": "Khác"},
+    "sp13": {"ten": "Mã Highlands Coffee Nước Free", "gia": 15000, "sl": 5, "nhom": "Mã Highlands Coffee Free"},
 }
 
 CATEGORY_ORDER = [
@@ -51,9 +51,9 @@ CATEGORY_ORDER = [
     "Shopee",
     "Canva",
     "CapCut",
-    "AI Tools",
+    "ChatGPT + Gemini",
     "Youtube",
-    "Khác",
+    "Mã Highlands Coffee Free",
 ]
 
 logging.basicConfig(level=logging.INFO)

@@ -19,7 +19,7 @@ from aiogram.types import (
 )
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
 
-BOT_TOKEN = "8649986734:AAEPEY3qI8OHOzAz7PUKnxDUmoNHxkXwBNc"
+BOT_TOKEN = "8649986734:AAEPEY3qI8OHOzAz7PUKnxDUmoNHxkc"
 ADMIN_ID = 7078570432
 
 BANK_NAME = "MB Bank"

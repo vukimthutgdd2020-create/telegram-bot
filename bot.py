@@ -2,6 +2,7 @@ import asyncio
 import logging
 import sqlite3
 import html
+from datetime import datetime
 from pathlib import Path
 from urllib.parse import quote
 
@@ -16,6 +17,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     Message,
+    FSInputFile,
 )
 from aiogram.exceptions import TelegramForbiddenError, TelegramBadRequest, TelegramRetryAfter
 
@@ -399,6 +401,7 @@ async def help_command(m: Message):
         "/xoasp - Xoá sản phẩm ngay trong bot (chỉ admin)\n"
         "/thongbao - Gửi thông báo tới tất cả user đã từng nhắn bot (chỉ admin)\n"
         "/users - Xem danh sách user đã từng nhắn bot (chỉ admin)\n\n"
+        "/backup - Gửi file database .db về admin để sao lưu (chỉ admin)\n\n"
         f"Liên hệ hỗ trợ: {SUPPORT_USERNAME}"
     )
     await m.answer(text)
@@ -517,7 +520,48 @@ async def users_command(m: Message):
 
     if text:
         await m.answer(text)
+@dp.message(Command("backup"))
+async def backup_command(m: Message):
+    save_user_info(m.from_user)
 
+    if m.from_user.id != ADMIN_ID:
+        await m.answer("Bạn không có quyền dùng lệnh này.")
+        return
+
+    db_path = Path(DB_NAME)
+
+    if not db_path.exists():
+        await m.answer(
+            "❌ Không tìm thấy file database để backup.\n"
+            f"Đường dẫn hiện tại: <code>{html.escape(str(db_path))}</code>"
+        )
+        return
+
+    try:
+        backup_file = FSInputFile(str(db_path))
+        dung_luong = db_path.stat().st_size
+        thoi_gian = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+
+        await bot.send_document(
+            ADMIN_ID,
+            backup_file,
+            caption=(
+                "✅ <b>BACKUP DATABASE THÀNH CÔNG</b>\n\n"
+                f"📁 Tên file: <b>{html.escape(db_path.name)}</b>\n"
+                f"📦 Dung lượng: <b>{dung_luong:,} bytes</b>\n"
+                f"🕒 Thời gian: <b>{thoi_gian}</b>\n"
+                f"📂 Đường dẫn: <code>{html.escape(str(db_path))}</code>"
+            )
+        )
+
+        await m.answer("✅ Bot đã gửi file backup .db về Telegram admin.")
+
+    except Exception as e:
+        logging.exception(f"Lỗi backup database: {e}")
+        await m.answer(
+            "❌ Backup thất bại.\n"
+            f"Lỗi: <code>{html.escape(str(e))}</code>"
+        )
 
 @dp.message(Command("themsp"))
 async def themsp_command(m: Message, state: FSMContext):
